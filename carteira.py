@@ -106,21 +106,41 @@ def _rotulo(m):
     return '%04d-%02d' % (m // 12, m % 12 + 1)
 
 
-MOTIVOS = [
-    ('faleceu', 'Dono faleceu'),
-    ('fechou', 'Fechou as portas'),
-    ('concorrente', 'Foi para um concorrente'),
-    ('preco', 'Questão de preço'),
-    ('inadimplencia', 'Inadimplência, venda bloqueada'),
-    ('licenca', 'Licença do Exército vencida'),
-    ('sucessao', 'Mudou de dono ou de comprador'),
-    ('sazonal', 'Comportamento sazonal, volta na época'),
-    ('estoque', 'Comprou demais, ainda tem estoque'),
-    ('mudanca', 'Mudou de ramo ou de região'),
-    ('outro', 'Outro motivo'),
-]
-# Situacoes que tiram o cliente da lista de acao e da projecao: nao adianta
-# cobrar meta de quem fechou, e manter isso na fila so faz o time perder tempo.
+REGIOES = {
+    'N':  ('Norte',        ['AC', 'AP', 'AM', 'PA', 'RO', 'RR', 'TO']),
+    'NE': ('Nordeste',     ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE']),
+    'CO': ('Centro-Oeste', ['DF', 'GO', 'MT', 'MS']),
+    'SE': ('Sudeste',      ['ES', 'MG', 'RJ', 'SP']),
+    'S':  ('Sul',          ['PR', 'RS', 'SC']),
+}
+UFS = sorted(uf for _, ufs in REGIOES.values() for uf in ufs)
+REGIAO_DA_UF = {uf: sigla for sigla, (_, ufs) in REGIOES.items() for uf in ufs}
+
+
+def rotulo_atuacao(tokens):
+    """['NE','SP'] -> 'Nordeste, SP'"""
+    saida = []
+    for t in tokens or []:
+        t = str(t).strip().upper()
+        if t in REGIOES:
+            saida.append(REGIOES[t][0])
+        elif t in REGIAO_DA_UF:
+            saida.append(t)
+    return ', '.join(saida)
+
+
+def ufs_cobertas(tokens):
+    """Expande a atuacao declarada na lista de UFs que ela cobre."""
+    ufs = set()
+    for t in tokens or []:
+        t = str(t).strip().upper()
+        if t in REGIOES:
+            ufs.update(REGIOES[t][1])
+        elif t in REGIAO_DA_UF:
+            ufs.add(t)
+    return sorted(ufs)
+
+
 SITUACOES_ENCERRADAS = ('perdido',)
 
 
@@ -186,13 +206,6 @@ def calcular(linhas, aliases=None, fichas=None):
     for n in nomes:
         C[n]['id'] = id_cliente(n)
 
-    # ── RFM ──
-    _pontuar(C, nomes, 'recencia', 'R', invertido=True)
-    _pontuar(C, nomes, 'compras', 'F')
-    _pontuar(C, nomes, 'receita', 'M')
-    for n in nomes:
-        C[n]['segmento'] = _segmento(C[n]['R'], C[n]['F'], C[n]['M'])
-
     # ── curva ABC ──
     ordem = sorted(nomes, key=lambda n: -C[n]['receita'])
     acum = 0.0
@@ -246,7 +259,8 @@ def calcular(linhas, aliases=None, fichas=None):
                             for a in (REF.year - 2, REF.year - 1, REF.year)}
         C[n]['ytd_base'] = (sum(anteriores) / len(anteriores)) if anteriores else 0.0
         C[n]['ytd_n_anos'] = len(anteriores)
-        C[n]['var_ytd_abs'] = C[n]['ytd%d' % REF.year] - C[n]['ytd_base']
+        C[n]['ytd_atual'] = C[n]['ytd%d' % REF.year]
+        C[n]['var_ytd_abs'] = C[n]['ytd_atual'] - C[n]['ytd_base']
         C[n]['var_ytd_pct'] = ((C[n]['var_ytd_abs'] / C[n]['ytd_base'] * 100)
                                if C[n]['ytd_base'] > 0 else None)
         C[n]['inativo12m'] = C[n]['recencia'] > 365
@@ -254,14 +268,26 @@ def calcular(linhas, aliases=None, fichas=None):
         C[n]['receita_12m_ant'] = soma(REF - 2 * ano, REF - ano, n)
         C[n]['hist'] = [[d.isoformat(), v] for d, v in por_cliente[n]]
 
-    # ── situacao declarada pelo gestor ──
+    # ── o que o gestor declarou na ficha ──
     for n in nomes:
         f = fichas.get(C[n]['id'], {})
         C[n]['situacao'] = (f.get('situacao') or 'ativo')
-        C[n]['motivo_tipo'] = f.get('motivo_tipo') or ''
         C[n]['motivo'] = f.get('motivo') or ''
         C[n]['encerrado'] = C[n]['situacao'] in SITUACOES_ENCERRADAS
+        C[n]['cidade'] = f.get('cidade') or ''
+        C[n]['uf_base'] = (f.get('estado') or '').upper()
+        at = f.get('atuacao') or []
+        if isinstance(at, str):
+            at = [x for x in re.split(r'[;,\s]+', at) if x]
+        C[n]['atuacao'] = [str(x).strip().upper() for x in at]
+        C[n]['atuacao_rotulo'] = rotulo_atuacao(C[n]['atuacao'])
+        C[n]['atuacao_ufs'] = ufs_cobertas(C[n]['atuacao'])
     encerrados = {n for n in nomes if C[n]['encerrado']}
+
+    # ── direcao comercial e ritmo de compra ──
+    for n in nomes:
+        C[n]['direcao'] = _direcao(C[n])
+        C[n]['ritmo'], C[n]['ritmo_rel'] = _ritmo(C[n])
 
     # ── projecao ──
     prev = _projetar(nomes, mat, emp, C, faixa_meses, REF, encerrados)
@@ -322,25 +348,52 @@ def _percentil(vals, p):
     return s[lo] + (s[hi] - s[lo]) * (k - lo)
 
 
-def _pontuar(C, nomes, campo, destino, invertido=False):
-    """Quintis sobre o campo, com desempate estavel pela ordem do nome."""
-    ordenado = sorted(nomes, key=lambda n: (C[n][campo], n))
-    total = len(ordenado)
-    for pos, n in enumerate(ordenado):
-        import math
-        q = min(5, max(1, math.ceil((pos + 1) / total * 5)))
-        C[n][destino] = (6 - q) if invertido else q
+def _direcao(c):
+    """Para onde o cliente esta indo, comparando o ano corrente com a mesma
+    janela dos anos anteriores.
+
+    Substitui a segmentacao RFM de proposito. RFM classifica por posicao
+    relativa aos outros clientes, o que rotula de 'perdido' quem compra pouco
+    mas cresceu, e obriga uma legenda para cada nome. Aqui cada estado diz o
+    que aconteceu com o proprio cliente e o que fazer com ele.
+    """
+    if c.get('encerrado'):
+        return 'encerrado'
+    if c['ytd_n_anos'] == 0:
+        return 'novo'
+    if c['ytd_atual'] == 0:
+        return 'parou'
+    v = c['var_ytd_pct']
+    if v is None:
+        return 'novo'
+    if v > 10:
+        return 'crescendo'
+    if v >= -10:
+        return 'estavel'
+    if v >= -30:
+        return 'em queda'
+    return 'queda forte'
 
 
-def _segmento(R, F, M):
-    fm = (F + M) / 2
-    if R >= 4 and fm >= 4: return 'Campeoes'
-    if R >= 3 and fm >= 3: return 'Fieis'
-    if R >= 4 and fm < 3: return 'Promissores'
-    if R == 3 and fm < 3: return 'Atencao'
-    if R <= 2 and fm >= 4: return 'Em risco'
-    if R <= 2 and fm == 3: return 'Hibernando'
-    return 'Perdidos'
+DIRECOES = ['crescendo', 'estavel', 'em queda', 'queda forte', 'parou', 'novo', 'encerrado']
+
+
+def _ritmo(c):
+    """Atraso medido contra o ritmo do PROPRIO cliente, nunca contra os outros.
+
+    Um cliente que compra tres vezes por ano nao esta atrasado aos 150 dias;
+    um que compra toda semana esta. Comparar todo mundo na mesma regua de dias
+    e o que fazia a Mussana, que cresceu 67%, aparecer como perdida.
+    """
+    passo = c['intervalo']
+    if not passo or c['compras'] < 3:
+        return None, None
+    rel = c['recencia'] / passo
+    if rel <= 1.3:
+        return 'em dia', rel
+    if rel <= 2.5:
+        return 'atrasado', rel
+    return 'muito atrasado', rel
 
 
 def _coortes(nomes, C, por_cliente, REF):
@@ -364,70 +417,90 @@ def _limpar(c, aliases):
     d['primeira'] = c['primeira'].isoformat()
     d['ultima'] = c['ultima'].isoformat()
     d['alias'] = sorted(k for k, v in aliases.items() if v == c['nome'])
-    for k in ('R', 'F', 'M'):
-        d[k] = int(d[k])
     return d
 
 
 # ── projecao ──────────────────────────────────────────────────────────────────
 
 def _projetar(nomes, mat, emp, C, faixa, REF, encerrados=()):
-    """Media do mesmo mes nos dois anos anteriores, somada cliente a cliente.
-    Foi o metodo que melhor se saiu no backtest; ver _backtestar."""
-    mref = _mes(REF)
-    alvos = [mref] + [m for m in range(mref + 1, (REF.year * 12) + 12)]
-    alvos = alvos[:4]  # o mes corrente e o resto do ano civil
+    """Projecao do mes corrente ate dezembro.
 
+    O metodo e simples de proposito: a projeccao de cada mes E a media do que o
+    cliente fez naquele mes em 2024 e 2025. Nada de suavizacao ou de fator de
+    ajuste, porque com duas observacoes por mes qualquer sofisticacao seria
+    enfeite sobre ruido. Assim o gestor ve os dois anos ao lado do numero e
+    julga sozinho se a media faz sentido para aquele cliente.
+    """
+    mref = _mes(REF)
+    ultimo_do_ano = (REF.year * 12) + 11
+    alvos = list(range(mref, min(ultimo_do_ano, mref + 11) + 1))
     reg = _regularidade(nomes, mat, mref)
-    prev_cli, prev_emp = {}, {}
+
+    prev = {}
     for a in alvos:
         p = {}
         for n in nomes:
-            anteriores = [mat[n].get(a - 12, 0.0), mat[n].get(a - 24, 0.0)]
-            anteriores = [x for x, mm in zip(anteriores, (a - 12, a - 24)) if mm >= faixa[0]]
-            v = sum(anteriores) / len(anteriores) if anteriores else 0.0
+            anos = [(mm, mat[n].get(mm, 0.0)) for mm in (a - 12, a - 24) if mm >= faixa[0]]
+            v = (sum(x for _, x in anos) / len(anos)) if anos else 0.0
             if _mes(C[n]['primeira']) >= a or n in encerrados:
                 v = 0.0
             p[n] = max(0.0, v)
-        prev_cli[a] = p
-        prev_emp[a] = sum(p.values())
+        prev[a] = p
 
-    ja_mes = emp[mref]
-    resto_mes = {n: max(0.0, prev_cli[mref][n] - mat[n].get(mref, 0.0)) for n in nomes}
+    def detalhe(n, a):
+        h1 = mat[n].get(a - 24, 0.0) if (a - 24) >= faixa[0] else None
+        h2 = mat[n].get(a - 12, 0.0) if (a - 12) >= faixa[0] else None
+        d = {'mes': _rotulo(a), 'prev': prev[a][n], 'h1': h1, 'h2': h2}
+        if a == mref:                      # mes corrente: descontar o realizado
+            d['ja'] = mat[n].get(mref, 0.0)
+            d['falta'] = max(0.0, prev[a][n] - d['ja'])
+        return d
+
     futuros = alvos[1:]
-    bloco = {n: sum(prev_cli[a][n] for a in futuros) for n in nomes}
-
-    def faixa_hist(n):
-        lo = sum(min(mat[n].get(a - 12, 0.0), mat[n].get(a - 24, 0.0)) for a in futuros)
-        hi = sum(max(mat[n].get(a - 12, 0.0), mat[n].get(a - 24, 0.0)) for a in futuros)
-        return lo, hi
+    total = {n: sum(prev[a][n] for a in futuros) +
+                max(0.0, prev[mref][n] - mat[n].get(mref, 0.0)) for n in nomes}
 
     clientes = []
-    for n in sorted(nomes, key=lambda x: -bloco[x]):
-        r = reg[n]
-        conf = 'boa' if r >= 10 else ('razoavel' if r >= 7 else None)
-        if not conf or n in encerrados:
+    for n in sorted(nomes, key=lambda x: -total[x]):
+        if n in encerrados or total[n] <= 0:
             continue
-        lo, hi = faixa_hist(n)
-        clientes.append({'nome': n, 'id': C[n]['id'], 'conf': conf, 'reg': r,
-                         'prev': bloco[n], 'min': lo, 'max': hi,
-                         'set_resto': resto_mes[n],
-                         'meses': {_rotulo(a): prev_cli[a][n] for a in futuros}})
+        r = reg[n]
+        clientes.append({
+            'nome': n, 'id': C[n]['id'], 'reg': r,
+            'conf': 'boa' if r >= 10 else ('razoavel' if r >= 7 else 'fraca'),
+            'total': total[n],
+            'meses': [detalhe(n, a) for a in alvos],
+        })
+
+    emp_meses = []
+    for a in alvos:
+        # Os dois anos ao lado somam SO os clientes que entram na projecao deste
+        # mes: quem foi marcado como perdido e quem ainda nao existia ficam de
+        # fora dos tres numeros. Sem isso a media mostrada nao fecharia com as
+        # duas colunas, e uma conta que nao fecha na tela destroi a confianca no
+        # numero inteiro.
+        dentro = [n for n in nomes if n not in encerrados and _mes(C[n]['primeira']) < a]
+        excluidos = [n for n in nomes if n not in dentro]
+        linha = {'mes': _rotulo(a), 'prev': sum(prev[a].values()),
+                 'h1': sum(mat[n].get(a - 24, 0.0) for n in dentro) if (a - 24) >= faixa[0] else None,
+                 'h2': sum(mat[n].get(a - 12, 0.0) for n in dentro) if (a - 12) >= faixa[0] else None,
+                 'fora': sum(mat[n].get(a - 12, 0.0) + mat[n].get(a - 24, 0.0)
+                             for n in excluidos) / 2.0,
+                 'n_fora': len(excluidos)}
+        if a == mref:
+            linha['ja'] = emp[mref]
+            linha['falta'] = max(0.0, linha['prev'] - emp[mref])
+        emp_meses.append(linha)
 
     return {
+        'mes_corrente': _rotulo(mref),
         'empresa': {
-            'resto_mes': sum(resto_mes.values()), 'ja_mes': ja_mes,
-            'mes_corrente': _rotulo(mref),
-            'meses': {_rotulo(a): {'previsto': prev_emp[a],
-                                   'h1': sum(mat[n].get(a - 24, 0.0) for n in nomes),
-                                   'h2': sum(mat[n].get(a - 12, 0.0) for n in nomes)}
-                      for a in futuros},
-            'bloco': sum(prev_emp[a] for a in futuros),
-            'h1': sum(emp[a - 24] for a in futuros),
-            'h2': sum(emp[a - 12] for a in futuros),
+            'meses': emp_meses,
+            'total': sum(l.get('falta', l['prev']) for l in emp_meses),
+            'ja_mes': emp[mref],
         },
         'clientes': clientes,
-        'sem_meta': len(nomes) - len(clientes),
+        'com_meta': sum(1 for c in clientes if c['reg'] >= 7),
     }
 
 
@@ -502,3 +575,123 @@ def _backtestar(nomes, mat, emp, C, faixa, REF):
         'vies': (sum(erros) / len(erros)) if erros else None,
     }
     return {'blocos': blocos, 'mensal': mensal, 'resumo': resumo}
+
+
+# ── prospeccao ────────────────────────────────────────────────────────────────
+
+ETAPAS = [
+    ('novo',    'Novo',       'Entrou na lista e ninguem falou com ele ainda.'),
+    ('contato', 'Em contato', 'Alguem ja falou, a conversa esta viva.'),
+    ('ganho',   'Ganhou',     'Virou cliente. Some da fila e aparece na carteira.'),
+    ('perdido', 'Perdido',    'Nao vai acontecer, com o motivo escrito.'),
+]
+ETAPAS_ABERTAS = ('novo', 'contato')
+
+# Sinonimos aceitos no cabecalho do CSV de leads. O objetivo e que o gestor
+# exporte de onde for e o arquivo entre sem precisar renomear coluna.
+COLUNAS_LEAD = {
+    'nome':     ['nome', 'empresa', 'razao social', 'cliente', 'lead', 'estabelecimento'],
+    'cidade':   ['cidade', 'municipio', 'localidade'],
+    'uf':       ['uf', 'estado', 'sigla'],
+    'contato':  ['contato', 'responsavel', 'pessoa', 'nome do contato', 'comprador'],
+    'telefone': ['telefone', 'fone', 'celular', 'whatsapp', 'whats', 'tel'],
+    'email':    ['email', 'e mail', 'e-mail', 'mail'],
+}
+
+
+def id_lead(nome, cidade=''):
+    """Chave do lead. Inclui a cidade porque 'Casa dos Fogos' existe em varias,
+    e sem isso duas empresas diferentes viram uma so no upload."""
+    base = (str(nome).strip().upper() + '|' + str(cidade).strip().upper())
+    h = hashlib.sha1(base.encode('utf-8')).hexdigest()[:8]
+    return 'lead-%s-%s' % (slug(nome)[:40], h)
+
+
+def ler_csv_leads(texto):
+    """Le o CSV de leads por NOME de coluna, nao por posicao.
+
+    Diferente do CSV de vendas, que tem tres colunas fixas, a lista de leads vem
+    de fontes diferentes a cada vez: feira, indicacao, planilha de associacao.
+    Casar pelo cabecalho evita que a ordem das colunas quebre a importacao.
+    """
+    if texto.startswith('\ufeff'):
+        texto = texto[1:]
+    amostra = texto[:2000]
+    sep = ';' if amostra.count(';') >= amostra.count(',') else ','
+    linhas = list(csv.reader(io.StringIO(texto), delimiter=sep))
+    if not linhas:
+        return [], ['arquivo vazio']
+
+    cabecalho = [normalizar(c) for c in linhas[0]]
+    mapa = {}
+    for campo, nomes in COLUNAS_LEAD.items():
+        for i, c in enumerate(cabecalho):
+            if c in nomes and campo not in mapa:
+                mapa[campo] = i
+                break
+    if 'nome' not in mapa:
+        return [], ['nao encontrei a coluna de nome. O cabecalho precisa ter '
+                    'uma coluna chamada Nome (ou Empresa, ou Razao Social)']
+
+    leads, erros = [], []
+    for n, campos in enumerate(linhas[1:], start=2):
+        def pega(campo, limite=200):
+            i = mapa.get(campo)
+            return campos[i].strip()[:limite] if i is not None and i < len(campos) else ''
+        nome = pega('nome')
+        if not nome:
+            continue
+        uf = pega('uf', 40).upper()
+        if uf not in REGIAO_DA_UF:
+            uf = uf[:2] if uf[:2] in REGIAO_DA_UF else ''
+        leads.append({
+            'nome': nome.upper(), 'cidade': pega('cidade', 120), 'uf': uf,
+            'contato': pega('contato', 120), 'telefone': pega('telefone', 40),
+            'email': pega('email', 160),
+        })
+    return leads, erros
+
+
+def analisar_leads(leads, clientes_dados=None):
+    """Organiza os leads e cruza com a carteira.
+
+    O cruzamento e a parte que importa: importar uma lista de feira e sair
+    ligando para quem ja compra todo mes e o jeito mais rapido de queimar o
+    time. Quem ja e cliente sai da fila e aparece marcado.
+    """
+    porcarteira = {}
+    if clientes_dados:
+        for c in clientes_dados['clientes']:
+            porcarteira[normalizar(c['nome'])] = c
+            for a in c.get('alias', []):
+                porcarteira[normalizar(a)] = c
+
+    saida, por_etapa = [], defaultdict(list)
+    for L in leads:
+        d = dict(L)
+        d['etapa'] = d.get('etapa') or 'novo'
+        ja = porcarteira.get(normalizar(d['nome']))
+        d['ja_cliente'] = bool(ja)
+        d['cliente_id'] = ja['id'] if ja else (d.get('cliente_id') or '')
+        d['cliente_receita'] = ja['receita'] if ja else 0.0
+        d['cliente_direcao'] = ja['direcao'] if ja else ''
+        d['regiao'] = REGIAO_DA_UF.get(d.get('uf') or '', '')
+        por_etapa[d['etapa']].append(d)
+        saida.append(d)
+
+    total = len(saida)
+    fechados = len(por_etapa['ganho']) + len(por_etapa['perdido'])
+    return {
+        'leads': saida,
+        'etapas': [{'chave': k, 'rotulo': r, 'ajuda': a,
+                    'n': len(por_etapa[k])} for k, r, a in ETAPAS],
+        'total': total,
+        'abertos': sum(len(por_etapa[k]) for k in ETAPAS_ABERTAS),
+        'ganhos': len(por_etapa['ganho']),
+        'perdidos': len(por_etapa['perdido']),
+        # Taxa sobre o que ja foi decidido, nao sobre a lista inteira: enquanto
+        # a maior parte esta em aberto, dividir por todos daria um numero
+        # artificialmente baixo que so cai conforme se importa mais lead.
+        'conversao': (len(por_etapa['ganho']) / fechados * 100) if fechados else None,
+        'ja_clientes': sum(1 for d in saida if d['ja_cliente']),
+    }

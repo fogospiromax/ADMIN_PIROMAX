@@ -1014,8 +1014,8 @@ def init_carteira_db():
             cidade       TEXT DEFAULT '',
             estado       TEXT DEFAULT '',
             situacao     TEXT DEFAULT 'ativo',
-            motivo_tipo  TEXT DEFAULT '',
             motivo       TEXT DEFAULT '',
+            atuacao      TEXT DEFAULT '',
             obs          TEXT DEFAULT '',
             atualizado_em TEXT
         )''')
@@ -1037,7 +1037,34 @@ def init_carteira_db():
             feita      BOOLEAN DEFAULT FALSE,
             criado_em  TEXT
         )''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS carteira_lead (
+            id          TEXT PRIMARY KEY,
+            nome        TEXT NOT NULL,
+            cidade      TEXT DEFAULT '',
+            uf          TEXT DEFAULT '',
+            contato     TEXT DEFAULT '',
+            telefone    TEXT DEFAULT '',
+            email       TEXT DEFAULT '',
+            etapa       TEXT DEFAULT 'novo',
+            motivo      TEXT DEFAULT '',
+            obs         TEXT DEFAULT '',
+            proximo     TEXT DEFAULT '',
+            proximo_em  DATE,
+            cliente_id  TEXT DEFAULT '',
+            origem_arq  TEXT DEFAULT '',
+            criado_em   TEXT,
+            atualizado_em TEXT
+        )''')
+    cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_lead_etapa ON carteira_lead(etapa)')
     cur.execute('CREATE TABLE IF NOT EXISTS carteira_config (chave TEXT PRIMARY KEY, valor TEXT)')
+    # migracao de bancos que nasceram antes destes campos
+    for coluna, tipo in (('atuacao', "TEXT DEFAULT ''"), ('motivo', "TEXT DEFAULT ''")):
+        cur.execute('ALTER TABLE carteira_ficha ADD COLUMN IF NOT EXISTS %s %s' % (coluna, tipo))
+    cur.execute("ALTER TABLE carteira_ficha DROP COLUMN IF EXISTS motivo_tipo")
+    # a mesma nota nunca entra duas vezes
+    cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_vendas_nota '
+                'ON carteira_vendas(data, cliente, valor)')
     conn.commit()
 
     # Unificações que o Fernando já decidiu, aplicadas uma única vez. O marcador
@@ -1080,7 +1107,11 @@ def _carteira_dados():
     aliases = {r['apelido']: r['canonico'] for r in cur.fetchall()}
 
     cur.execute('SELECT * FROM carteira_ficha')
-    fichas = {r['cliente_id']: dict(r) for r in cur.fetchall()}
+    fichas = {}
+    for r in cur.fetchall():
+        f = dict(r)
+        f['atuacao'] = [x for x in (f.get('atuacao') or '').split(',') if x]
+        fichas[f['cliente_id']] = f
 
     cur.execute('SELECT * FROM carteira_interacao ORDER BY data DESC')
     inter = [{'id': r['id'], 'cliente': r['cliente_id'], 'data': r['data'].isoformat(),
@@ -1091,19 +1122,25 @@ def _carteira_dados():
                 'prazo': r['prazo'].isoformat() if r['prazo'] else '',
                 'feita': bool(r['feita'])} for r in cur.fetchall()]
 
+    cur.execute('SELECT * FROM carteira_lead ORDER BY nome')
+    leads = []
+    for r in cur.fetchall():
+        L = dict(r)
+        L['proximo_em'] = L['proximo_em'].isoformat() if L['proximo_em'] else ''
+        leads.append(L)
+
     cur.close()
     conn.close()
 
     dados = carteira.calcular(linhas, aliases, fichas)
-    if dados is None:
-        return None, {}, inter, tarefas, aliases
-    return dados, fichas, inter, tarefas, aliases
+    prospec = carteira.analisar_leads(leads, dados)
+    return dados, fichas, inter, tarefas, aliases, prospec
 
 
 @app.route('/admin/carteira')
 @login_required
 def admin_carteira_view():
-    dados, fichas, inter, tarefas, aliases = _carteira_dados()
+    dados, fichas, inter, tarefas, aliases, prospec = _carteira_dados()
     candidatos = carteira.candidatos_unificacao(dados) if dados else []
     return render_template(
         'admin_carteira.html',
@@ -1113,9 +1150,71 @@ def admin_carteira_view():
         tarefas_json=_json.dumps(tarefas, ensure_ascii=False),
         aliases_json=_json.dumps(aliases, ensure_ascii=False),
         candidatos_json=_json.dumps(candidatos, ensure_ascii=False),
-        motivos_json=_json.dumps(carteira.MOTIVOS, ensure_ascii=False),
+        prospec_json=_json.dumps(prospec, default=str, ensure_ascii=False),
+        etapas_json=_json.dumps(carteira.ETAPAS, ensure_ascii=False),
+        regioes_json=_json.dumps([[k, v[0], v[1]] for k, v in carteira.REGIOES.items()], ensure_ascii=False),
         hoje=today_sp(),
     )
+
+
+def _ler_upload(arq):
+    bruto = arq.read()
+    for cod in ('utf-8-sig', 'utf-8', 'latin-1'):
+        try:
+            return carteira.ler_csv(bruto.decode(cod))
+        except UnicodeDecodeError:
+            continue
+    return None, ['arquivo ilegivel: salve como CSV UTF-8']
+
+
+def _diferenca(cur, linhas):
+    """O que do arquivo ainda nao esta no banco.
+
+    Conta quantas vezes cada nota (data, cliente, valor) ja existe e so
+    considera novo o que passar dessa contagem. Assim reenviar o historico
+    inteiro nao duplica nada, e duas vendas legitimamente iguais no mesmo dia
+    continuam valendo as duas.
+    """
+    from collections import Counter
+    cur.execute('SELECT data, cliente, valor, COUNT(*) FROM carteira_vendas GROUP BY 1,2,3')
+    existe = {(r[0], r[1], round(float(r[2]), 2)): r[3] for r in cur.fetchall()}
+    chegando = Counter((d, n, round(v, 2)) for d, n, v in linhas)
+    novas = []
+    for (d, n, v), qtd in chegando.items():
+        faltam = qtd - existe.get((d, n, v), 0)
+        novas.extend([(d, n, v)] * max(0, faltam))
+    novas.sort()
+    return novas
+
+
+@app.route('/admin/carteira/previa', methods=['POST'])
+@login_required
+def admin_carteira_previa():
+    arq = request.files.get('arquivo')
+    if not arq or not arq.filename:
+        return jsonify({'success': False, 'erro': 'Nenhum arquivo foi enviado.'}), 400
+    linhas, erros = _ler_upload(arq)
+    if not linhas:
+        return jsonify({'success': False, 'erro': 'Nenhuma linha valida. Esperado: Data;Nome;Valor.',
+                        'detalhes': erros[:10]}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    novas = _diferenca(cur, linhas)
+    cur.execute('SELECT COUNT(*), MIN(data), MAX(data) FROM carteira_vendas')
+    qtd, d0, d1 = cur.fetchone()
+    cur.close()
+    conn.close()
+    nomes_novos = sorted({n for _, n, _ in novas})
+    return jsonify({'success': True,
+                    'no_arquivo': len(linhas), 'novas': len(novas),
+                    'repetidas': len(linhas) - len(novas),
+                    'ja_no_banco': qtd,
+                    'periodo_banco': [str(d0), str(d1)] if d0 else None,
+                    'periodo_novas': [str(novas[0][0]), str(novas[-1][0])] if novas else None,
+                    'valor_novas': round(sum(v for _, _, v in novas), 2),
+                    'clientes_novos': nomes_novos[:20],
+                    'qtd_clientes_novos': len(nomes_novos),
+                    'ignoradas': len(erros), 'detalhes': erros[:10]})
 
 
 @app.route('/admin/carteira/upload', methods=['POST'])
@@ -1124,36 +1223,22 @@ def admin_carteira_upload():
     arq = request.files.get('arquivo')
     if not arq or not arq.filename:
         return jsonify({'success': False, 'erro': 'Nenhum arquivo foi enviado.'}), 400
-    bruto = arq.read()
-    texto = None
-    for cod in ('utf-8-sig', 'utf-8', 'latin-1'):
-        try:
-            texto = bruto.decode(cod)
-            break
-        except UnicodeDecodeError:
-            continue
-    if texto is None:
-        return jsonify({'success': False, 'erro': 'Não consegui ler o arquivo. Salve como CSV UTF-8.'}), 400
-
-    linhas, erros = carteira.ler_csv(texto)
+    linhas, erros = _ler_upload(arq)
     if not linhas:
-        return jsonify({'success': False,
-                        'erro': 'Nenhuma linha válida encontrada. Esperado: Data;Nome;Valor.',
+        return jsonify({'success': False, 'erro': 'Nenhuma linha valida. Esperado: Data;Nome;Valor.',
                         'detalhes': erros[:10]}), 400
-
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('SELECT COUNT(*) FROM carteira_vendas')
-    antes = cur.fetchone()[0]
-    # O CSV é sempre a base completa, não um incremento: troca tudo de uma vez
-    # dentro da mesma transação, para nunca ficar com o banco pela metade.
-    cur.execute('DELETE FROM carteira_vendas')
-    cur.executemany('INSERT INTO carteira_vendas (data, cliente, valor) VALUES (%s, %s, %s)',
-                    [(d, n, v) for d, n, v in linhas])
+    novas = _diferenca(cur, linhas)
+    if novas:
+        cur.executemany('INSERT INTO carteira_vendas (data, cliente, valor) VALUES (%s,%s,%s)', novas)
     conn.commit()
+    cur.execute('SELECT COUNT(*) FROM carteira_vendas')
+    total = cur.fetchone()[0]
     cur.close()
     conn.close()
-    return jsonify({'success': True, 'linhas': len(linhas), 'antes': antes,
+    return jsonify({'success': True, 'novas': len(novas),
+                    'repetidas': len(linhas) - len(novas), 'total': total,
                     'ignoradas': len(erros), 'detalhes': erros[:10]})
 
 
@@ -1169,18 +1254,24 @@ def admin_carteira_ficha():
         situacao = 'ativo'
     conn = get_db()
     cur = conn.cursor()
+    at = d.get('atuacao') or []
+    if isinstance(at, str):
+        at = [x for x in at.replace(';', ',').split(',') if x.strip()]
+    at = ','.join(sorted({str(x).strip().upper() for x in at
+                          if str(x).strip().upper() in carteira.REGIOES
+                          or str(x).strip().upper() in carteira.REGIAO_DA_UF}))
     cur.execute('''
         INSERT INTO carteira_ficha
-            (cliente_id, cliente_nome, cidade, estado, situacao, motivo_tipo, motivo, obs, atualizado_em)
+            (cliente_id, cliente_nome, cidade, estado, situacao, motivo, atuacao, obs, atualizado_em)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (cliente_id) DO UPDATE SET
             cliente_nome=EXCLUDED.cliente_nome, cidade=EXCLUDED.cidade,
             estado=EXCLUDED.estado, situacao=EXCLUDED.situacao,
-            motivo_tipo=EXCLUDED.motivo_tipo, motivo=EXCLUDED.motivo,
+            motivo=EXCLUDED.motivo, atuacao=EXCLUDED.atuacao,
             obs=EXCLUDED.obs, atualizado_em=EXCLUDED.atualizado_em
     ''', (cid, (d.get('cliente_nome') or '')[:200], (d.get('cidade') or '')[:120],
           (d.get('estado') or '')[:2].upper(), situacao,
-          (d.get('motivo_tipo') or '')[:40], (d.get('motivo') or '')[:500],
+          (d.get('motivo') or '')[:1000], at,
           (d.get('obs') or '')[:2000], now_sp_str()))
     conn.commit()
     cur.close()
@@ -1214,6 +1305,42 @@ def admin_carteira_fichas_lote():
     cur.close()
     conn.close()
     return jsonify({'success': True, 'gravados': n})
+
+
+@app.route('/admin/carteira/atuacao-lote', methods=['POST'])
+@login_required
+def admin_carteira_atuacao_lote():
+    d = request.get_json(silent=True) or {}
+    ids = [str(x).strip() for x in (d.get('ids') or []) if str(x).strip()]
+    modo = d.get('modo') or 'substituir'
+    validos = sorted({str(x).strip().upper() for x in (d.get('atuacao') or [])
+                      if str(x).strip().upper() in carteira.REGIOES
+                      or str(x).strip().upper() in carteira.REGIAO_DA_UF})
+    if not ids:
+        return jsonify({'success': False, 'erro': 'nenhum cliente selecionado'}), 400
+    nomes = d.get('nomes') or {}
+    conn = get_db()
+    cur = conn.cursor()
+    n = 0
+    for cid in ids[:500]:
+        atual = []
+        if modo == 'adicionar':
+            cur.execute('SELECT atuacao FROM carteira_ficha WHERE cliente_id=%s', (cid,))
+            row = cur.fetchone()
+            if row and row[0]:
+                atual = [x for x in row[0].split(',') if x]
+        novo = ','.join(sorted(set(atual) | set(validos))) if modo == 'adicionar' else ','.join(validos)
+        cur.execute('''
+            INSERT INTO carteira_ficha (cliente_id, cliente_nome, atuacao, atualizado_em)
+            VALUES (%s,%s,%s,%s)
+            ON CONFLICT (cliente_id) DO UPDATE SET
+                atuacao=EXCLUDED.atuacao, atualizado_em=EXCLUDED.atualizado_em
+        ''', (cid, (nomes.get(cid) or '')[:200], novo, now_sp_str()))
+        n += 1
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'gravados': n, 'atuacao': validos, 'modo': modo})
 
 
 @app.route('/admin/carteira/interacao', methods=['POST'])
@@ -1286,6 +1413,175 @@ def admin_carteira_tarefa_del(item_id):
     conn = get_db()
     cur = conn.cursor()
     cur.execute('DELETE FROM carteira_tarefa WHERE id=%s', (item_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True})
+
+
+def _ler_leads(arq):
+    bruto = arq.read()
+    for cod in ('utf-8-sig', 'utf-8', 'latin-1'):
+        try:
+            return carteira.ler_csv_leads(bruto.decode(cod))
+        except UnicodeDecodeError:
+            continue
+    return [], ['arquivo ilegivel: salve como CSV UTF-8']
+
+
+def _leads_novos(cur, leads):
+    """Separa o que entra do que ja existe. Reimportar a mesma lista nao cria
+    duplicata nem reseta a etapa de quem ja esta em andamento."""
+    cur.execute('SELECT id FROM carteira_lead')
+    existe = {r[0] for r in cur.fetchall()}
+    novos, repetidos, vistos = [], [], set()
+    for L in leads:
+        lid = carteira.id_lead(L['nome'], L.get('cidade', ''))
+        if lid in existe or lid in vistos:
+            repetidos.append(L)
+            continue
+        vistos.add(lid)
+        novos.append((lid, L))
+    return novos, repetidos
+
+
+@app.route('/admin/carteira/leads/previa', methods=['POST'])
+@login_required
+def admin_leads_previa():
+    arq = request.files.get('arquivo')
+    if not arq or not arq.filename:
+        return jsonify({'success': False, 'erro': 'Nenhum arquivo foi enviado.'}), 400
+    leads, erros = _ler_leads(arq)
+    if not leads:
+        return jsonify({'success': False,
+                        'erro': (erros[0] if erros else 'Nenhum lead valido no arquivo.'),
+                        'detalhes': erros[:10]}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    novos, repetidos = _leads_novos(cur, leads)
+    # Quem do arquivo ja compra da casa. E o cruzamento que importa: importar uma
+    # lista de feira e sair ligando para quem ja compra todo mes queima o time.
+    cur.execute('SELECT DISTINCT cliente FROM carteira_vendas')
+    clientes = {carteira.normalizar(r[0]) for r in cur.fetchall()}
+    cur.execute('SELECT apelido FROM carteira_alias')
+    clientes |= {carteira.normalizar(r[0]) for r in cur.fetchall()}
+    ja = [L['nome'] for _, L in novos if carteira.normalizar(L['nome']) in clientes]
+    cur.execute('SELECT COUNT(*) FROM carteira_lead')
+    total = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'no_arquivo': len(leads), 'novos': len(novos),
+                    'repetidos': len(repetidos), 'ja_no_banco': total,
+                    'ja_clientes': ja[:20], 'qtd_ja_clientes': len(ja),
+                    'sem_uf': sum(1 for _, L in novos if not L.get('uf')),
+                    'sem_telefone': sum(1 for _, L in novos if not L.get('telefone')),
+                    'amostra': [L for _, L in novos[:10]],
+                    'ignoradas': len(erros), 'detalhes': erros[:10]})
+
+
+@app.route('/admin/carteira/leads/upload', methods=['POST'])
+@login_required
+def admin_leads_upload():
+    arq = request.files.get('arquivo')
+    if not arq or not arq.filename:
+        return jsonify({'success': False, 'erro': 'Nenhum arquivo foi enviado.'}), 400
+    nome_arq = arq.filename[:120]
+    leads, erros = _ler_leads(arq)
+    if not leads:
+        return jsonify({'success': False,
+                        'erro': (erros[0] if erros else 'Nenhum lead valido no arquivo.'),
+                        'detalhes': erros[:10]}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    novos, repetidos = _leads_novos(cur, leads)
+    agora = now_sp_str()
+    if novos:
+        cur.executemany(
+            'INSERT INTO carteira_lead (id, nome, cidade, uf, contato, telefone, email, '
+            'etapa, origem_arq, criado_em, atualizado_em) '
+            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            [(lid, L['nome'], L.get('cidade', ''), L.get('uf', ''), L.get('contato', ''),
+              L.get('telefone', ''), L.get('email', ''), 'novo', nome_arq, agora, agora)
+             for lid, L in novos])
+    conn.commit()
+    cur.execute('SELECT COUNT(*) FROM carteira_lead')
+    total = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'novos': len(novos),
+                    'repetidos': len(repetidos), 'total': total,
+                    'ignoradas': len(erros), 'detalhes': erros[:10]})
+
+
+@app.route('/admin/carteira/lead', methods=['POST'])
+@login_required
+def admin_lead_salvar():
+    d = request.get_json(silent=True) or {}
+    lid = (d.get('id') or '').strip()
+    if not lid:
+        return jsonify({'success': False, 'erro': 'lead sem identificador'}), 400
+    etapa = d.get('etapa') or 'novo'
+    if etapa not in [e[0] for e in carteira.ETAPAS]:
+        etapa = 'novo'
+    conn = get_db()
+    cur = conn.cursor()
+    # So grava o que veio no corpo. Um UPDATE de todas as colunas com os campos
+    # ausentes vazios apagaria cidade, telefone e contato a cada chamada
+    # parcial, e o lead perderia dado sem ninguem pedir.
+    limites = {'cidade': 120, 'uf': 2, 'contato': 120, 'telefone': 40, 'email': 160,
+               'motivo': 1000, 'obs': 2000, 'proximo': 300}
+    campos, valores = [], []
+    for k, lim in limites.items():
+        if k in d:
+            v = (d.get(k) or '')[:lim]
+            campos.append(k + '=%s')
+            valores.append(v.upper() if k == 'uf' else v)
+    if 'etapa' in d:
+        campos.append('etapa=%s')
+        valores.append(etapa)
+    if 'proximo_em' in d:
+        campos.append('proximo_em=%s')
+        valores.append(d.get('proximo_em') or None)
+    campos.append('atualizado_em=%s')
+    valores.append(now_sp_str())
+    valores.append(lid)
+    cur.execute('UPDATE carteira_lead SET ' + ', '.join(campos) + ' WHERE id=%s', valores)
+    if cur.rowcount == 0:
+        cur.close()
+        conn.close()
+        return jsonify({'success': False, 'erro': 'lead nao encontrado'}), 404
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/lead/etapa-lote', methods=['POST'])
+@login_required
+def admin_lead_etapa_lote():
+    d = request.get_json(silent=True) or {}
+    ids = [str(x).strip() for x in (d.get('ids') or []) if str(x).strip()]
+    etapa = d.get('etapa')
+    if not ids or etapa not in [e[0] for e in carteira.ETAPAS]:
+        return jsonify({'success': False, 'erro': 'selecione os leads e a etapa'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('UPDATE carteira_lead SET etapa=%s, atualizado_em=%s WHERE id = ANY(%s)',
+                (etapa, now_sp_str(), ids[:500]))
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'gravados': n, 'etapa': etapa})
+
+
+@app.route('/admin/carteira/lead/<lead_id>', methods=['DELETE'])
+@login_required
+def admin_lead_excluir(lead_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('DELETE FROM carteira_lead WHERE id=%s', (lead_id,))
+    cur.execute('DELETE FROM carteira_interacao WHERE cliente_id=%s', (lead_id,))
     conn.commit()
     cur.close()
     conn.close()
