@@ -983,6 +983,362 @@ def api_tasks():
     date_str = request.args.get('date', today_sp())
     return jsonify(get_tasks(date_str))
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Carteira de clientes — análise de vendas e CRM
+# ══════════════════════════════════════════════════════════════════════════════
+import json as _json
+import carteira
+
+
+def init_carteira_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS carteira_vendas (
+            id SERIAL PRIMARY KEY,
+            data DATE NOT NULL,
+            cliente TEXT NOT NULL,
+            valor NUMERIC(14,2) NOT NULL
+        )''')
+    cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_vendas_cliente ON carteira_vendas(cliente)')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS carteira_alias (
+            apelido  TEXT PRIMARY KEY,
+            canonico TEXT NOT NULL
+        )''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS carteira_ficha (
+            cliente_id   TEXT PRIMARY KEY,
+            cliente_nome TEXT,
+            cidade       TEXT DEFAULT '',
+            estado       TEXT DEFAULT '',
+            situacao     TEXT DEFAULT 'ativo',
+            motivo_tipo  TEXT DEFAULT '',
+            motivo       TEXT DEFAULT '',
+            obs          TEXT DEFAULT '',
+            atualizado_em TEXT
+        )''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS carteira_interacao (
+            id         TEXT PRIMARY KEY,
+            cliente_id TEXT NOT NULL,
+            data       DATE NOT NULL,
+            tipo       TEXT,
+            resumo     TEXT,
+            criado_em  TEXT
+        )''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS carteira_tarefa (
+            id         TEXT PRIMARY KEY,
+            cliente_id TEXT NOT NULL,
+            titulo     TEXT NOT NULL,
+            prazo      DATE,
+            feita      BOOLEAN DEFAULT FALSE,
+            criado_em  TEXT
+        )''')
+    cur.execute('CREATE TABLE IF NOT EXISTS carteira_config (chave TEXT PRIMARY KEY, valor TEXT)')
+    conn.commit()
+
+    # Unificações que o Fernando já decidiu, aplicadas uma única vez. O marcador
+    # em carteira_config garante que desfazer uma delas depois não seja
+    # revertido pelo próximo deploy.
+    cur.execute("SELECT 1 FROM carteira_config WHERE chave = 'seed_aliases_v1'")
+    if not cur.fetchone():
+        iniciais = [
+            ('DISTRIBUIDORA DE FOGOS CIENFUEGOS', 'FOGOS MANIA'),
+            ('IL DISTRIBUIÇÃO DE FOGOS LTDA', 'IL DISTRIBUIÇÃO DE FOGOS'),
+            ('ARTESANATO DE FOGOS CINCO ESTRELAS LTDA', 'IL DISTRIBUIÇÃO DE FOGOS'),
+            ('RICARDO NELSON DALSASSO ME', 'FOGOS DALSASSO'),
+            ('REGES GERALDO DE LISBOA', 'FOGOS OURO FINO'),
+            ('FOGOS OURO FINO (REGES LISBOA)', 'FOGOS OURO FINO'),
+        ]
+        cur.executemany('INSERT INTO carteira_alias (apelido, canonico) VALUES (%s,%s) '
+                        'ON CONFLICT (apelido) DO NOTHING', iniciais)
+        cur.execute("INSERT INTO carteira_config (chave, valor) VALUES ('seed_aliases_v1','1')")
+        conn.commit()
+
+    cur.close()
+    conn.close()
+
+
+try:
+    init_carteira_db()
+except Exception as e:
+    print(f"[init_carteira_db] Aviso: {e}")
+
+
+def _carteira_dados():
+    """Monta o payload completo do painel a partir do banco."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute('SELECT data, cliente, valor FROM carteira_vendas ORDER BY data')
+    linhas = [(r['data'], r['cliente'], float(r['valor'])) for r in cur.fetchall()]
+
+    cur.execute('SELECT apelido, canonico FROM carteira_alias')
+    aliases = {r['apelido']: r['canonico'] for r in cur.fetchall()}
+
+    cur.execute('SELECT * FROM carteira_ficha')
+    fichas = {r['cliente_id']: dict(r) for r in cur.fetchall()}
+
+    cur.execute('SELECT * FROM carteira_interacao ORDER BY data DESC')
+    inter = [{'id': r['id'], 'cliente': r['cliente_id'], 'data': r['data'].isoformat(),
+              'tipo': r['tipo'] or '', 'resumo': r['resumo'] or ''} for r in cur.fetchall()]
+
+    cur.execute('SELECT * FROM carteira_tarefa')
+    tarefas = [{'id': r['id'], 'cliente': r['cliente_id'], 'titulo': r['titulo'],
+                'prazo': r['prazo'].isoformat() if r['prazo'] else '',
+                'feita': bool(r['feita'])} for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
+    dados = carteira.calcular(linhas, aliases, fichas)
+    if dados is None:
+        return None, {}, inter, tarefas, aliases
+    return dados, fichas, inter, tarefas, aliases
+
+
+@app.route('/admin/carteira')
+@login_required
+def admin_carteira_view():
+    dados, fichas, inter, tarefas, aliases = _carteira_dados()
+    candidatos = carteira.candidatos_unificacao(dados) if dados else []
+    return render_template(
+        'admin_carteira.html',
+        dados_json=_json.dumps(dados, default=str, ensure_ascii=False) if dados else 'null',
+        fichas_json=_json.dumps(fichas, default=str, ensure_ascii=False),
+        inter_json=_json.dumps(inter, ensure_ascii=False),
+        tarefas_json=_json.dumps(tarefas, ensure_ascii=False),
+        aliases_json=_json.dumps(aliases, ensure_ascii=False),
+        candidatos_json=_json.dumps(candidatos, ensure_ascii=False),
+        motivos_json=_json.dumps(carteira.MOTIVOS, ensure_ascii=False),
+        hoje=today_sp(),
+    )
+
+
+@app.route('/admin/carteira/upload', methods=['POST'])
+@login_required
+def admin_carteira_upload():
+    arq = request.files.get('arquivo')
+    if not arq or not arq.filename:
+        return jsonify({'success': False, 'erro': 'Nenhum arquivo foi enviado.'}), 400
+    bruto = arq.read()
+    texto = None
+    for cod in ('utf-8-sig', 'utf-8', 'latin-1'):
+        try:
+            texto = bruto.decode(cod)
+            break
+        except UnicodeDecodeError:
+            continue
+    if texto is None:
+        return jsonify({'success': False, 'erro': 'Não consegui ler o arquivo. Salve como CSV UTF-8.'}), 400
+
+    linhas, erros = carteira.ler_csv(texto)
+    if not linhas:
+        return jsonify({'success': False,
+                        'erro': 'Nenhuma linha válida encontrada. Esperado: Data;Nome;Valor.',
+                        'detalhes': erros[:10]}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT COUNT(*) FROM carteira_vendas')
+    antes = cur.fetchone()[0]
+    # O CSV é sempre a base completa, não um incremento: troca tudo de uma vez
+    # dentro da mesma transação, para nunca ficar com o banco pela metade.
+    cur.execute('DELETE FROM carteira_vendas')
+    cur.executemany('INSERT INTO carteira_vendas (data, cliente, valor) VALUES (%s, %s, %s)',
+                    [(d, n, v) for d, n, v in linhas])
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'linhas': len(linhas), 'antes': antes,
+                    'ignoradas': len(erros), 'detalhes': erros[:10]})
+
+
+@app.route('/admin/carteira/ficha', methods=['POST'])
+@login_required
+def admin_carteira_ficha():
+    d = request.get_json(silent=True) or {}
+    cid = (d.get('cliente_id') or '').strip()
+    if not cid:
+        return jsonify({'success': False, 'erro': 'cliente_id ausente'}), 400
+    situacao = d.get('situacao') or 'ativo'
+    if situacao not in ('ativo', 'pausado', 'perdido'):
+        situacao = 'ativo'
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('''
+        INSERT INTO carteira_ficha
+            (cliente_id, cliente_nome, cidade, estado, situacao, motivo_tipo, motivo, obs, atualizado_em)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (cliente_id) DO UPDATE SET
+            cliente_nome=EXCLUDED.cliente_nome, cidade=EXCLUDED.cidade,
+            estado=EXCLUDED.estado, situacao=EXCLUDED.situacao,
+            motivo_tipo=EXCLUDED.motivo_tipo, motivo=EXCLUDED.motivo,
+            obs=EXCLUDED.obs, atualizado_em=EXCLUDED.atualizado_em
+    ''', (cid, (d.get('cliente_nome') or '')[:200], (d.get('cidade') or '')[:120],
+          (d.get('estado') or '')[:2].upper(), situacao,
+          (d.get('motivo_tipo') or '')[:40], (d.get('motivo') or '')[:500],
+          (d.get('obs') or '')[:2000], now_sp_str()))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/fichas-lote', methods=['POST'])
+@login_required
+def admin_carteira_fichas_lote():
+    itens = (request.get_json(silent=True) or {}).get('itens') or []
+    if not itens:
+        return jsonify({'success': False, 'erro': 'nada para gravar'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    n = 0
+    for it in itens[:1000]:
+        cid = (it.get('cliente_id') or '').strip()
+        if not cid:
+            continue
+        cur.execute('''
+            INSERT INTO carteira_ficha (cliente_id, cliente_nome, cidade, estado, atualizado_em)
+            VALUES (%s,%s,%s,%s,%s)
+            ON CONFLICT (cliente_id) DO UPDATE SET
+                cidade=EXCLUDED.cidade, estado=EXCLUDED.estado,
+                atualizado_em=EXCLUDED.atualizado_em
+        ''', (cid, (it.get('cliente_nome') or '')[:200], (it.get('cidade') or '')[:120],
+              (it.get('estado') or '')[:2].upper(), now_sp_str()))
+        n += 1
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'gravados': n})
+
+
+@app.route('/admin/carteira/interacao', methods=['POST'])
+@login_required
+def admin_carteira_interacao_add():
+    d = request.get_json(silent=True) or {}
+    cid, resumo = (d.get('cliente_id') or '').strip(), (d.get('resumo') or '').strip()
+    if not cid or not resumo:
+        return jsonify({'success': False, 'erro': 'cliente e resumo são obrigatórios'}), 400
+    novo = str(uuid.uuid4())
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('INSERT INTO carteira_interacao (id, cliente_id, data, tipo, resumo, criado_em) '
+                'VALUES (%s,%s,%s,%s,%s,%s)',
+                (novo, cid, d.get('data') or today_sp(), (d.get('tipo') or '')[:40],
+                 resumo[:1000], now_sp_str()))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'id': novo})
+
+
+@app.route('/admin/carteira/interacao/<item_id>', methods=['DELETE'])
+@login_required
+def admin_carteira_interacao_del(item_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('DELETE FROM carteira_interacao WHERE id=%s', (item_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/tarefa', methods=['POST'])
+@login_required
+def admin_carteira_tarefa_add():
+    d = request.get_json(silent=True) or {}
+    cid, titulo = (d.get('cliente_id') or '').strip(), (d.get('titulo') or '').strip()
+    if not cid or not titulo:
+        return jsonify({'success': False, 'erro': 'cliente e descrição são obrigatórios'}), 400
+    novo = str(uuid.uuid4())
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('INSERT INTO carteira_tarefa (id, cliente_id, titulo, prazo, feita, criado_em) '
+                'VALUES (%s,%s,%s,%s,%s,%s)',
+                (novo, cid, titulo[:300], d.get('prazo') or None, False, now_sp_str()))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'id': novo})
+
+
+@app.route('/admin/carteira/tarefa/<item_id>', methods=['POST'])
+@login_required
+def admin_carteira_tarefa_toggle(item_id):
+    feita = bool((request.get_json(silent=True) or {}).get('feita'))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('UPDATE carteira_tarefa SET feita=%s WHERE id=%s', (feita, item_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/tarefa/<item_id>', methods=['DELETE'])
+@login_required
+def admin_carteira_tarefa_del(item_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('DELETE FROM carteira_tarefa WHERE id=%s', (item_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/alias', methods=['POST'])
+@login_required
+def admin_carteira_alias():
+    d = request.get_json(silent=True) or {}
+    apelido = (d.get('apelido') or '').strip().upper()
+    canonico = (d.get('canonico') or '').strip().upper()
+    conn = get_db()
+    cur = conn.cursor()
+    if d.get('remover'):
+        cur.execute('DELETE FROM carteira_alias WHERE apelido=%s', (apelido,))
+    else:
+        if not apelido or not canonico or apelido == canonico:
+            cur.close()
+            conn.close()
+            return jsonify({'success': False, 'erro': 'informe dois nomes diferentes'}), 400
+        # evita corrente de apelidos: se o canônico já é apelido de outro,
+        # aponta direto para o destino final
+        cur.execute('SELECT canonico FROM carteira_alias WHERE apelido=%s', (canonico,))
+        row = cur.fetchone()
+        if row:
+            canonico = row[0]
+        cur.execute('INSERT INTO carteira_alias (apelido, canonico) VALUES (%s,%s) '
+                    'ON CONFLICT (apelido) DO UPDATE SET canonico=EXCLUDED.canonico',
+                    (apelido, canonico))
+        cur.execute('UPDATE carteira_alias SET canonico=%s WHERE canonico=%s', (canonico, apelido))
+
+        # O cliente que some leva junto o que já foi registrado sobre ele:
+        # sem isso, tarefas e contatos ficariam órfãos de um id que a carteira
+        # não gera mais.
+        de, para = carteira.id_cliente(apelido), carteira.id_cliente(canonico)
+        if de != para:
+            cur.execute('UPDATE carteira_interacao SET cliente_id=%s WHERE cliente_id=%s', (para, de))
+            cur.execute('UPDATE carteira_tarefa   SET cliente_id=%s WHERE cliente_id=%s', (para, de))
+            # A ficha só migra se o cliente que fica ainda não tiver uma, para
+            # não sobrescrever um cadastro preenchido à mão.
+            cur.execute('SELECT 1 FROM carteira_ficha WHERE cliente_id=%s', (para,))
+            if cur.fetchone():
+                cur.execute('DELETE FROM carteira_ficha WHERE cliente_id=%s', (de,))
+            else:
+                cur.execute('UPDATE carteira_ficha SET cliente_id=%s, cliente_nome=%s '
+                            'WHERE cliente_id=%s', (para, canonico, de))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True})
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
