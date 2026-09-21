@@ -128,16 +128,6 @@ header {
 
   <div class="modules">
 
-    <a href="/admin/carteira" class="module-card">
-      <div class="module-icon">📈</div>
-      <div class="module-info">
-        <div class="module-title">Carteira de Clientes</div>
-        <div class="module-desc">Analise de vendas, projecao e CRM comercial</div>
-      </div>
-      <div class="module-arrow">&rsaquo;</div>
-    </a>
-
-
     <a href="/admin/pedidos" class="module-card">
       <div class="module-icon">📦</div>
       <div class="module-info">
