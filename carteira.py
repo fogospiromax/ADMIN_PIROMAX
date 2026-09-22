@@ -287,6 +287,13 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
         C[n]['atuacao'] = [str(x).strip().upper() for x in at]
         C[n]['atuacao_rotulo'] = rotulo_atuacao(C[n]['atuacao'])
         C[n]['atuacao_ufs'] = ufs_cobertas(C[n]['atuacao'])
+        C[n]['tipo'] = (f.get('tipo') or 'carteira')
+        if C[n]['tipo'] not in TIPOS:
+            C[n]['tipo'] = 'carteira'
+        C[n]['tipo_rotulo'] = TIPOS[C[n]['tipo']][0]
+        C[n]['ocasional'] = (C[n]['tipo'] == 'ocasional')
+        cm = (f.get('classe_manual') or '').strip()
+        C[n]['classe_manual'] = cm if cm in MOTIVO_ROTULO else ''
     encerrados = {n for n in nomes if C[n]['encerrado']}
 
     # ── direcao comercial e ritmo de compra ──
@@ -298,6 +305,9 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
     HOJE = hoje or REF
     for n in nomes:
         _rotina(C[n], fichas.get(C[n]['id'], {}), contatos.get(C[n]['id']), HOJE)
+        auto = _motivo(C[n])
+        C[n]['motivo_auto'] = auto[0] if auto else 'rotina'
+        C[n]['motivo_auto_rotulo'] = MOTIVO_ROTULO[C[n]['motivo_auto']]
 
     fila = _fila(nomes, C)
 
@@ -337,9 +347,15 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
             'vencidos': sum(1 for n in nomes if C[n]['contato_urgente']),
             'em_dia': sum(1 for n in nomes
                           if not C[n]['contato_urgente'] and not C[n]['dispensa_rotina']),
-            'dispensados': sum(1 for n in nomes if C[n]['dispensa_rotina']),
+            'dispensados': sum(1 for n in nomes
+                               if C[n]['dispensa_rotina'] and not C[n]['ocasional']),
+            'ocasionais': sum(1 for n in nomes if C[n]['ocasional']),
+            'receita_ocasional': sum(C[n]['receita'] for n in nomes if C[n]['ocasional']),
+            'manuais': sum(1 for n in nomes if C[n]['classe_manual']),
             'sem_contato': sum(1 for n in nomes if C[n]['contato_ultimo'] is None),
         },
+        'tipos': [[k, v[0], v[1]] for k, v in TIPOS.items()],
+        'motivos': [[k, v] for k, v in MOTIVO_ROTULO.items()],
     }
     return saida
 
@@ -351,6 +367,22 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
 # Com 161 clientes, quinzenal para todos dava onze contatos por dia util.
 CADENCIA = {'A': 15, 'B': 15, 'C': 30}
 
+# Que tipo de relacao a Piromax tem com este comprador. Nem todo mundo que
+# emite nota e carteira: concorrente que compra o que falta no estoque dele,
+# compra de balcao e evento avulso movimentam dinheiro de verdade e entram no
+# faturamento, mas cobrar rotina e alerta comercial deles enche a fila de
+# trabalho que nao existe.
+TIPOS = {
+    'carteira':  ('Carteira', 'Cliente de verdade: entra na fila e na rotina de contato.'),
+    'ocasional': ('Ocasional', 'Compra de vez em quando e nao precisa de rotina nem de alerta. '
+                               'Continua contando no faturamento e na analise.'),
+}
+
+MOTIVO_ROTULO = {
+    'recuperar': 'Recuperar', 'queda': 'Caindo', 'crescer': 'Crescendo',
+    'novo': 'Novo', 'ritmo': 'Atrasado', 'rotina': 'Rotina',
+}
+
 
 def _rotina(c, ficha, ultimo, hoje):
     """Estado do contato de um cliente, medido contra a cadencia da classe dele.
@@ -358,7 +390,8 @@ def _rotina(c, ficha, ultimo, hoje):
     'ultimo' e a data da ultima interacao registrada no banco, ou None para
     quem nunca foi contactado. Quem nunca foi contactado tem atraso infinito de
     proposito: e o topo da fila ate alguem falar com ele pela primeira vez."""
-    c['dispensa_rotina'] = bool(ficha.get('dispensa'))
+    # Ocasional nao tem rotina por definicao: e o que faz dele ocasional.
+    c['dispensa_rotina'] = bool(ficha.get('dispensa')) or c.get('ocasional')
     try:
         cad = int(ficha.get('cadencia') or 0)
     except (TypeError, ValueError):
@@ -369,7 +402,9 @@ def _rotina(c, ficha, ultimo, hoje):
 
     if c['dispensa_rotina']:
         c.update(contato_dias=None, contato_atraso=-10 ** 9,
-                 contato_rotulo='Dispensado da rotina', contato_urgente=False)
+                 contato_rotulo=('Ocasional, sem rotina' if c.get('ocasional')
+                                 else 'Dispensado da rotina'),
+                 contato_urgente=False)
         return
     if not ultimo:
         c.update(contato_dias=None, contato_atraso=10 ** 6,
@@ -420,9 +455,9 @@ def _fila(nomes, C):
     fila = []
     for n in nomes:
         c = C[n]
-        if c['encerrado']:
+        if c['encerrado'] or c['ocasional']:
             continue
-        m = _motivo(c)
+        m = _aplicar_manual(c, _motivo(c))
         if c['dispensa_rotina'] and not m:
             continue
         if not c['contato_urgente'] and not m:
@@ -440,6 +475,8 @@ def _fila(nomes, C):
             'peso': round(peso, 2), 'texto': texto, 'marcas': marcas,
             'classe': c['classe'], 'direcao': c['direcao'], 'uf': c['uf_base'],
             'receita': c['receita'], 'motivo': c['motivo'],
+            'manual': bool(c['classe_manual']),
+            'auto_rotulo': MOTIVO_ROTULO.get(c['motivo_auto'], 'Rotina'),
             'contato_rotulo': c['contato_rotulo'],
             'contato_atraso': c['contato_atraso'],
             'contato_urgente': c['contato_urgente'],
@@ -447,6 +484,45 @@ def _fila(nomes, C):
         })
     fila.sort(key=lambda x: (-x['contato_atraso'], -x['peso'], -x['receita']))
     return fila
+
+
+def _aplicar_manual(c, auto):
+    """A classificacao que o gestor escolheu a mao ganha da calculada.
+
+    O numero NAO e inventado junto com o rotulo: o peso continua saindo da
+    base. Se o gestor diz que um cliente e de recuperar, o valor em jogo e o
+    que ele comprava nesta janela; se diz que esta crescendo, e o quanto ja
+    cresceu. Quando a conta escolhida da zero, a linha entra sem valor em vez
+    de ganhar um numero de enfeite.
+    """
+    if not c['classe_manual']:
+        return auto
+    t = c['classe_manual']
+    if auto and auto[0] == t:
+        return auto
+
+    pesos = {
+        'recuperar': max(0.0, c['ytd_base']),
+        'queda': max(0.0, -(c['var_ytd_abs'] or 0)),
+        'crescer': max(0.0, c['var_ytd_abs'] or 0),
+        'novo': max(0.0, c['ytd_atual']),
+        'ritmo': c['ticket'],
+        'rotina': 0.0,
+    }
+    textos = {
+        'recuperar': 'Marcado por você como a recuperar. Nesta mesma altura do ano ele comprava R$ %s.'
+                     % _reais(c['ytd_base']),
+        'queda': 'Marcado por você como em queda. Comprava R$ %s nesta altura do ano e este ano R$ %s.'
+                 % (_reais(c['ytd_base']), _reais(c['ytd_atual'])),
+        'crescer': 'Marcado por você como em crescimento. Comprava R$ %s nesta altura do ano e este ano R$ %s.'
+                   % (_reais(c['ytd_base']), _reais(c['ytd_atual'])),
+        'novo': 'Marcado por você como novo. Primeira compra em %s, R$ %s neste ano.'
+                % (_br_data(c['primeira']), _reais(c['ytd_atual'])),
+        'ritmo': 'Marcado por você como atrasado. Está há %d dias sem comprar e o pedido médio dele é R$ %s.'
+                 % (c['recencia'], _reais(c['ticket'])),
+        'rotina': 'Marcado por você como caso de rotina apenas, sem alerta comercial.',
+    }
+    return (t, MOTIVO_ROTULO[t], pesos[t], textos[t])
 
 
 JANELA = 'nesta mesma altura do ano'

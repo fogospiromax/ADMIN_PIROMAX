@@ -1020,6 +1020,8 @@ def init_carteira_db():
             obs          TEXT DEFAULT '',
             dispensa     BOOLEAN DEFAULT FALSE,
             cadencia     INTEGER,
+            tipo         TEXT DEFAULT 'carteira',
+            classe_manual TEXT DEFAULT '',
             atualizado_em TEXT
         )''')
     cur.execute('''
@@ -1067,7 +1069,9 @@ def init_carteira_db():
     cur.execute('CREATE TABLE IF NOT EXISTS carteira_config (chave TEXT PRIMARY KEY, valor TEXT)')
     # migracao de bancos que nasceram antes destes campos
     for coluna, tipo in (('atuacao', "TEXT DEFAULT ''"), ('motivo', "TEXT DEFAULT ''"),
-                         ('dispensa', 'BOOLEAN DEFAULT FALSE'), ('cadencia', 'INTEGER')):
+                         ('dispensa', 'BOOLEAN DEFAULT FALSE'), ('cadencia', 'INTEGER'),
+                         ('tipo', "TEXT DEFAULT 'carteira'"),
+                         ('classe_manual', "TEXT DEFAULT ''")):
         cur.execute('ALTER TABLE carteira_ficha ADD COLUMN IF NOT EXISTS %s %s' % (coluna, tipo))
     cur.execute("ALTER TABLE carteira_ficha DROP COLUMN IF EXISTS motivo_tipo")
     # a mesma nota nunca entra duas vezes
@@ -1300,21 +1304,30 @@ def admin_carteira_ficha():
     except (TypeError, ValueError):
         cad = 0
     cad = cad if 1 <= cad <= 365 else None
+    tipo = d.get('tipo') or 'carteira'
+    if tipo not in carteira.TIPOS:
+        tipo = 'carteira'
+    # Classificacao a mao: vazio devolve o cliente para o criterio automatico.
+    cman = (d.get('classe_manual') or '').strip()
+    if cman not in carteira.MOTIVO_ROTULO:
+        cman = ''
     cur.execute('''
         INSERT INTO carteira_ficha
             (cliente_id, cliente_nome, cidade, estado, situacao, motivo, atuacao, obs,
-             dispensa, cadencia, atualizado_em)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             dispensa, cadencia, tipo, classe_manual, atualizado_em)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (cliente_id) DO UPDATE SET
             cliente_nome=EXCLUDED.cliente_nome, cidade=EXCLUDED.cidade,
             estado=EXCLUDED.estado, situacao=EXCLUDED.situacao,
             motivo=EXCLUDED.motivo, atuacao=EXCLUDED.atuacao,
             obs=EXCLUDED.obs, dispensa=EXCLUDED.dispensa, cadencia=EXCLUDED.cadencia,
+            tipo=EXCLUDED.tipo, classe_manual=EXCLUDED.classe_manual,
             atualizado_em=EXCLUDED.atualizado_em
     ''', (cid, (d.get('cliente_nome') or '')[:200], (d.get('cidade') or '')[:120],
           (d.get('estado') or '')[:2].upper(), situacao,
           (d.get('motivo') or '')[:1000], at,
-          (d.get('obs') or '')[:2000], bool(d.get('dispensa')), cad, now_sp_str()))
+          (d.get('obs') or '')[:2000], bool(d.get('dispensa')), cad,
+          tipo, cman, now_sp_str()))
     conn.commit()
     cur.close()
     conn.close()
@@ -1449,16 +1462,26 @@ def admin_carteira_rotina_lote():
     except (TypeError, ValueError):
         cad = 0
     cad = cad if 1 <= cad <= 365 else None
+    # So mexe no que veio. Um lote de cadencia nao pode apagar a classificacao
+    # que o gestor escreveu a mao em outro dia.
+    campos = [('dispensa', dispensa), ('cadencia', cad)]
+    if 'tipo' in d:
+        t = d.get('tipo') or 'carteira'
+        campos.append(('tipo', t if t in carteira.TIPOS else 'carteira'))
+    if 'classe_manual' in d:
+        cm = (d.get('classe_manual') or '').strip()
+        campos.append(('classe_manual', cm if cm in carteira.MOTIVO_ROTULO else ''))
+    colunas = ', '.join(k for k, _ in campos)
+    marcas = ', '.join(['%s'] * len(campos))
+    sets = ', '.join('%s=EXCLUDED.%s' % (k, k) for k, _ in campos)
     conn = get_db()
     cur = conn.cursor()
     for cid in ids[:500]:
-        cur.execute('''
-            INSERT INTO carteira_ficha (cliente_id, cliente_nome, dispensa, cadencia, atualizado_em)
-            VALUES (%s,%s,%s,%s,%s)
-            ON CONFLICT (cliente_id) DO UPDATE SET
-                dispensa=EXCLUDED.dispensa, cadencia=EXCLUDED.cadencia,
-                atualizado_em=EXCLUDED.atualizado_em
-        ''', (cid, (nomes.get(cid) or '')[:200], dispensa, cad, now_sp_str()))
+        cur.execute(
+            'INSERT INTO carteira_ficha (cliente_id, cliente_nome, ' + colunas + ', atualizado_em) '
+            'VALUES (%s,%s,' + marcas + ',%s) '
+            'ON CONFLICT (cliente_id) DO UPDATE SET ' + sets + ', atualizado_em=EXCLUDED.atualizado_em',
+            [cid, (nomes.get(cid) or '')[:200]] + [v for _, v in campos] + [now_sp_str()])
     conn.commit()
     cur.close()
     conn.close()
