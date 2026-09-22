@@ -216,30 +216,10 @@ function pintarHoje() {
   $('h-mais').textContent = 'Mostrar mais ' + Math.min(25, vis.length - estado.limite)
     + ' de ' + (vis.length - estado.limite) + ' restantes';
 
-  if (estado.tipo === 'emdia') {
-    $('h-nota').innerHTML = 'Aqui está quem <b>não precisa de contato agora</b>: '
-      + 'quem já foi atendido dentro do prazo, quem você acabou de marcar como feito, '
-      + 'e quem está fora da rotina por decisão sua ou por ser ocasional. '
-      + 'A etiqueta de cada linha diz em quantos dias ele volta para a fila. '
-      + 'Nenhum deles conta no número lá em cima, que é só o trabalho que falta.';
-    return;
-  }
-  var nunca = R.sem_contato || 0;
-  $('h-nota').innerHTML = (prio.length
-      ? '<b>Prioridade vem antes de tudo.</b> ' + prio.length + ' cliente(s) que você marcou '
-        + 'ficam no topo da fila, na frente de quem está vencido há mais tempo, porque a sua '
-        + 'decisão vale mais que o critério calculado. '
-      : '')
-    + '<b>Depois disso, a rotina manda na ordem e o dinheiro desempata.</b> '
-    + (nunca ? 'Há ' + nunca + ' cliente(s) sem nenhum contato registrado; enquanto estiverem empatados '
-        + 'em "nunca contactado", é o dinheiro em jogo que define a ordem. ' : '')
-    + 'Quem for contactado sai daqui na hora e reaparece em <b>Contato em dia</b> até vencer o prazo. '
-    + 'O valor ao lado é sempre uma quantia real: quem <b>parou</b> vale o que comprava nesta altura do ano; '
-    + 'quem está <b>caindo</b> ou <b>crescendo</b> vale a diferença já acumulada no ano; '
-    + 'quem é <b>novo</b> vale o que já trouxe; quem entra só por <b>rotina</b> não tem nada em jogo além da visita.'
-    + (R.ocasionais ? ' <b>' + R.ocasionais + ' cliente(s) marcados como ocasionais</b> ficam fora desta fila de '
-        + 'propósito, mas continuam contando no faturamento e na análise: são ' + moeda(R.receita_ocasional || 0)
-        + ' de receita que existe e não vira trabalho de rotina.' : '');
+  $('h-nota').innerHTML = estado.tipo === 'emdia'
+    ? 'Quem já foi atendido no prazo, quem você marcou como feito hoje e quem está fora da rotina. '
+      + 'A etiqueta de cada linha diz em quantos dias ele volta para a fila.'
+    : '';
 }
 function linhaFila(f) {
   var rot = MOTIVOS.filter(function (m) { return m[0] === f.tipo; })[0] || ['rotina', 'Rotina'];
@@ -689,110 +669,122 @@ function fichaCliente(id) {
     + '</div><button class="x" id="fx" type="button" aria-label="Fechar ficha">✕</button></div>'
   + '<div class="gcorpo">'
     + '<div class="url">' + location.origin + '/admin/carteira#/cliente/' + esc(id) + '</div>'
-    + (f ? '<div class="cartao" style="border-color:var(--roxo-borda)">'
+    + '<div class="gdupla">'
+
+    // ── coluna da esquerda: o trabalho. Rotina e contato coladas, porque uma
+    //    so existe por causa da outra e ler as duas junto e o dia a dia.
+    + '<div class="gcol">'
+      + (f ? '<div class="cartao" style="border-color:var(--roxo-borda)">'
+          + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
+          + '<h3>Por que está na fila</h3><span class="mono" style="font-weight:700;font-size:.82rem">'
+          + (f.peso ? moeda(f.peso) + ' em jogo' : 'só rotina') + '</span></div>'
+          + '<p class="nota" style="margin-top:5px">' + esc(f.texto) + '</p></div>' : '')
+
+      + '<div class="cartao" style="border-color:' + (c.contato_urgente ? '#f0dcae' : '#cfe6da') + '">'
         + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
-        + '<h3>Por que está na fila</h3><span class="mono" style="font-weight:700;font-size:.82rem">'
-        + (f.peso ? moeda(f.peso) + ' em jogo' : 'só rotina') + '</span></div>'
-        + '<p class="nota" style="margin-top:5px">' + esc(f.texto) + '</p></div>' : '')
-
-    + '<div class="cartao" style="border-color:' + (c.contato_urgente ? '#f0dcae' : '#cfe6da') + '">'
-      + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
-      + '<h3>Rotina de contato</h3><span class="mono" style="font-weight:700;font-size:.79rem;color:' + cor + '">'
-      + esc(c.contato_rotulo) + '</span></div>'
-      + '<p class="nota" style="margin-top:5px">Um contato a cada ' + c.cadencia + ' dias'
-      + (c.cadencia_propria ? ' (cadência própria deste cliente)' : ' (padrão da classe ' + c.classe + ')') + '. '
-      + (c.dispensa_rotina
-          ? 'Ele está fora da rotina e só aparece na fila se houver alerta comercial.'
-          : 'O relógio zera quando você registra o contato em <b>Contatos</b>, no fim desta ficha. '
-            + 'É o único lugar que grava contato, e escrever o que foi conversado é obrigatório.') + '</p>'
-      + '<div class="acoes" style="margin-top:10px">'
-        + '<button class="pri" type="button" data-a="prioridade">'
-          + (c.prioridade ? '★ Tirar a prioridade' : '★ Marcar como prioridade') + '</button>'
-        + '<button type="button" data-a="dispensa">'
-          + (c.dispensa_rotina ? 'Voltar para a rotina' : 'Não precisa de rotina') + '</button>'
+        + '<h3>Rotina de contato</h3><span class="mono" style="font-weight:700;font-size:.79rem;color:' + cor + '">'
+        + esc(c.contato_rotulo) + '</span></div>'
+        + '<p class="nota" style="margin-top:5px">Um contato a cada ' + c.cadencia + ' dias'
+        + (c.cadencia_propria ? ' (cadência própria deste cliente)' : ' (padrão da classe ' + c.classe + ')') + '. '
+        + (c.dispensa_rotina
+            ? 'Ele está fora da rotina e só aparece na fila se houver alerta comercial.'
+            : 'O relógio zera quando você grava o contato aqui embaixo.') + '</p>'
+        + '<div class="acoes" style="margin-top:10px">'
+          + '<button class="pri" type="button" data-a="prioridade">'
+            + (c.prioridade ? '★ Tirar a prioridade' : '★ Marcar como prioridade') + '</button>'
+          + '<button type="button" data-a="dispensa">'
+            + (c.dispensa_rotina ? 'Voltar para a rotina' : 'Não precisa de rotina') + '</button>'
+        + '</div>'
+        + '<div class="campo" style="margin-top:10px"><label for="fc-cad">Cadência própria, em dias</label>'
+          + '<input id="fc-cad" type="number" min="1" max="365" placeholder="vazio = padrão da classe ('
+          + c.classe + ')" value="' + (c.cadencia_propria ? c.cadencia : '') + '"></div>'
       + '</div>'
-      + '<div class="campo" style="margin-top:10px"><label for="fc-cad">Cadência própria, em dias</label>'
-        + '<input id="fc-cad" type="number" min="1" max="365" placeholder="vazio = padrão da classe ('
-        + c.classe + ')" value="' + (c.cadencia_propria ? c.cadencia : '') + '"></div>'
+
+      + '<div class="cartao" id="bloco-contato">'
+        + '<h3 style="margin-bottom:9px">Contatos</h3>'
+        + '<div class="campo"><label for="fc-nota">O que foi conversado</label>'
+          + '<textarea id="fc-nota" rows="3" placeholder="Ex.: falei com o Marcos, vai fechar pedido de '
+          + 'fim de ano em outubro. Pediu tabela dos morteiros de 3 polegadas."></textarea></div>'
+        + '<div class="acoes" style="margin-top:8px">'
+          + '<button class="pri" type="button" data-a="contato">Gravar contato</button>'
+          + '<span class="nota" style="margin:0;align-self:center">ou Ctrl+Enter</span></div>'
+        + (log.length ? '<div class="hist" style="margin-top:12px">' + log.map(function (i) {
+            return '<div class="it"><span class="d">' + dia(i.data) + '</span>'
+              + '<span class="t">' + esc(i.resumo) + '</span>'
+              + '<button class="del" type="button" data-del="' + esc(i.id) + '" aria-label="Apagar">✕</button></div>';
+          }).join('') + '</div>'
+          : '<p class="nota">Nenhum contato registrado ainda.</p>')
+      + '</div>'
     + '</div>'
 
-    + '<div class="cartao">'
-      + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
-      + '<h3>Classificação</h3>'
-      + '<span class="mono" style="font-size:.76rem;color:var(--texto3)">o sistema diz: '
-      + esc(c.motivo_auto_rotulo) + '</span></div>'
-      + '<div class="campo" style="margin-top:9px"><label for="fc-tipo">Tipo de relação</label>'
-        + '<select id="fc-tipo">' + (D.tipos || []).map(function (t) {
-            return '<option value="' + t[0] + '"' + (c.tipo === t[0] ? ' selected' : '') + '>'
-              + t[1] + '</option>'; }).join('') + '</select>'
-        + '<p class="nota" style="margin-top:4px">' + esc(((D.tipos || []).filter(function (t) {
-            return t[0] === c.tipo; })[0] || ['', '', ''])[2]) + '</p></div>'
-      + '<div class="campo" style="margin-top:10px"><label for="fc-cman">Como tratar na fila</label>'
-        + '<select id="fc-cman">'
-        + '<option value="">Deixar o sistema decidir (' + esc(c.motivo_auto_rotulo) + ')</option>'
-        + (D.motivos || []).map(function (m) {
-            return '<option value="' + m[0] + '"' + (c.classe_manual === m[0] ? ' selected' : '') + '>'
-              + m[1] + '</option>'; }).join('') + '</select>'
-        + '<p class="nota" style="margin-top:4px">'
-        + (c.classe_manual
-            ? 'Você trocou a classificação. O rótulo é seu, mas o valor em jogo continua saindo da base, '
-              + 'não de um número inventado para combinar com o rótulo.'
-            : 'O sistema classifica sozinho pelo que os números dizem. Se ele errar, escolha aqui e '
-              + 'escreva o porquê no motivo abaixo.') + '</p></div>'
+    // ── coluna da direita: o cadastro e os números ──
+    + '<div class="gcol">'
+      + '<div class="cartao">'
+        + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
+        + '<h3>Classificação</h3>'
+        + '<span class="mono" style="font-size:.76rem;color:var(--texto3)">o sistema diz: '
+        + esc(c.motivo_auto_rotulo) + '</span></div>'
+        + '<div class="campo" style="margin-top:9px"><label for="fc-tipo">Tipo de relação</label>'
+          + '<select id="fc-tipo">' + (D.tipos || []).map(function (t) {
+              return '<option value="' + t[0] + '"' + (c.tipo === t[0] ? ' selected' : '') + '>'
+                + t[1] + '</option>'; }).join('') + '</select>'
+          + '<p class="nota" style="margin-top:4px">' + esc(((D.tipos || []).filter(function (t) {
+              return t[0] === c.tipo; })[0] || ['', '', ''])[2]) + '</p></div>'
+        + '<div class="campo" style="margin-top:10px"><label for="fc-cman">Como tratar na fila</label>'
+          + '<select id="fc-cman">'
+          + '<option value="">Deixar o sistema decidir (' + esc(c.motivo_auto_rotulo) + ')</option>'
+          + (D.motivos || []).map(function (m) {
+              return '<option value="' + m[0] + '"' + (c.classe_manual === m[0] ? ' selected' : '') + '>'
+                + m[1] + '</option>'; }).join('') + '</select>'
+          + '<p class="nota" style="margin-top:4px">'
+          + (c.classe_manual
+              ? 'Você trocou a classificação. O rótulo é seu, mas o valor em jogo continua saindo da base, '
+                + 'não de um número inventado para combinar com o rótulo.'
+              : 'O sistema classifica sozinho pelo que os números dizem. Se ele errar, escolha aqui e '
+                + 'escreva o porquê no motivo abaixo.') + '</p></div>'
+      + '</div>'
+      + '<div class="cartao">'
+        + '<div class="campo"><label for="fc-motivo">Motivo da situação (texto livre)</label>'
+          + '<textarea id="fc-motivo" rows="2" placeholder="Ex.: o dono faleceu em março; a filha assumiu e ainda não retomou.">'
+          + esc(c.motivo) + '</textarea></div>'
+        + '<div class="grade g2" style="margin-top:10px">'
+          + '<div class="campo"><label for="fc-uf">Estado da sede</label><select id="fc-uf">'
+            + '<option value="">—</option>' + UFS.map(function (u) {
+                return '<option' + (c.uf_base === u ? ' selected' : '') + '>' + u + '</option>'; }).join('')
+            + '</select></div>'
+          + '<div class="campo"><label for="fc-cidade">Cidade</label>'
+            + '<input id="fc-cidade" value="' + esc(c.cidade) + '"></div>'
+        + '</div>'
+        + '<div class="campo" style="margin-top:10px"><label>Área de atuação (onde ele vende)</label>'
+          + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + REGIOES.map(function (r) {
+              var on = c.atuacao.indexOf(r[0]) >= 0;
+              return '<button class="ficha" type="button" data-at="' + r[0] + '" aria-pressed="' + on + '">'
+                + r[1] + '</button>'; }).join('') + '</div></div>'
+        + '<div class="campo" style="margin-top:10px"><label for="fc-sit">Situação declarada</label>'
+          + '<select id="fc-sit">'
+          + ['ativo', 'pausado', 'perdido'].map(function (s) {
+              return '<option value="' + s + '"' + (c.situacao === s ? ' selected' : '') + '>'
+                + (s === 'ativo' ? 'Ativo' : s === 'pausado' ? 'Pausado' : 'Encerrado') + '</option>'; }).join('')
+          + '</select></div>'
+        + '<div class="acoes" style="margin-top:11px">'
+          + '<button class="pri" type="button" data-a="salvar">Salvar ficha</button></div>'
+      + '</div>'
+      + '<div class="cartao">'
+        + stat('Receita total', cheio(c.receita))
+        + stat('Pedido médio', cheio(c.ticket))
+        + stat('Maior pedido', cheio(c.tmax))
+        + stat('Última compra', dia(c.ultima) + ' · ' + c.recencia + ' dias atrás')
+        + stat('Primeira compra', dia(c.primeira))
+        + stat('Direção', d[0] + (c.ritmo ? ' · ' + c.ritmo : ''))
+        + stat('Área de atuação', c.atuacao_rotulo || 'não preenchida')
+        + (c.alias && c.alias.length ? stat('Também aparecia como', esc(c.alias.join(', '))) : '')
+      + '</div>'
+      + '<div class="grade g2">'
+        + '<div class="cartao"><h3 style="margin-bottom:8px">Mesmo período, ano a ano</h3>' + barrasAno(c, anos) + '</div>'
+        + '<div class="cartao"><h3 style="margin-bottom:8px">Quando ele compra</h3>' + sazCliente(c.mensal) + '</div>'
+      + '</div>'
     + '</div>'
-    + '<div class="campo"><label for="fc-motivo">Motivo da situação (texto livre)</label>'
-      + '<textarea id="fc-motivo" rows="2" placeholder="Ex.: o dono faleceu em março; a filha assumiu e ainda não retomou.">'
-      + esc(c.motivo) + '</textarea></div>'
-    + '<div class="grade g2">'
-      + '<div class="campo"><label for="fc-uf">Estado da sede</label><select id="fc-uf">'
-        + '<option value="">—</option>' + UFS.map(function (u) {
-            return '<option' + (c.uf_base === u ? ' selected' : '') + '>' + u + '</option>'; }).join('')
-        + '</select></div>'
-      + '<div class="campo"><label for="fc-cidade">Cidade</label>'
-        + '<input id="fc-cidade" value="' + esc(c.cidade) + '"></div>'
-    + '</div>'
-    + '<div class="campo"><label>Área de atuação (onde ele vende)</label>'
-      + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + REGIOES.map(function (r) {
-          var on = c.atuacao.indexOf(r[0]) >= 0;
-          return '<button class="ficha" type="button" data-at="' + r[0] + '" aria-pressed="' + on + '">'
-            + r[1] + '</button>'; }).join('') + '</div></div>'
-    + '<div class="campo"><label for="fc-sit">Situação declarada</label><select id="fc-sit">'
-      + ['ativo', 'pausado', 'perdido'].map(function (s) {
-          return '<option value="' + s + '"' + (c.situacao === s ? ' selected' : '') + '>'
-            + (s === 'ativo' ? 'Ativo' : s === 'pausado' ? 'Pausado' : 'Encerrado') + '</option>'; }).join('')
-      + '</select></div>'
-    + '<div class="acoes"><button class="pri" type="button" data-a="salvar">Salvar ficha</button></div>'
 
-    + '<div class="grade g2">'
-      + '<div class="cartao"><h3 style="margin-bottom:8px">Mesmo período, ano a ano</h3>' + barrasAno(c, anos) + '</div>'
-      + '<div class="cartao"><h3 style="margin-bottom:8px">Quando ele compra</h3>' + sazCliente(c.mensal) + '</div>'
-    + '</div>'
-    + '<div class="cartao">'
-      + stat('Receita total', cheio(c.receita))
-      + stat('Pedido médio', cheio(c.ticket))
-      + stat('Maior pedido', cheio(c.tmax))
-      + stat('Última compra', dia(c.ultima) + ' · ' + c.recencia + ' dias atrás')
-      + stat('Primeira compra', dia(c.primeira))
-      + stat('Direção', d[0] + (c.ritmo ? ' · ' + c.ritmo : ''))
-      + stat('Área de atuação', c.atuacao_rotulo || 'não preenchida')
-      + (c.alias && c.alias.length ? stat('Também aparecia como', esc(c.alias.join(', '))) : '')
-    + '</div>'
-    + '<div class="cartao" id="bloco-contato"><h3 style="margin-bottom:9px">Contatos</h3>'
-      + '<p class="nota" style="margin:0 0 10px">Este é o único lugar de registrar contato, '
-      + 'e escrever o que foi conversado é obrigatório. Um contato em branco zera o relógio da '
-      + 'rotina e não deixa nada para quem abrir a ficha depois.</p>'
-      + (log.length ? '<div class="hist">' + log.map(function (i) {
-          return '<div class="it"><span class="d">' + dia(i.data) + '</span>'
-            + '<span class="t">' + esc(i.resumo) + '</span>'
-            + '<button class="del" type="button" data-del="' + esc(i.id) + '" aria-label="Apagar">✕</button></div>';
-        }).join('') + '</div>'
-        : '<p class="nota" style="margin-top:0">Nenhum contato registrado ainda.</p>')
-      + '<div class="campo" style="margin-top:11px"><label for="fc-nota">O que foi conversado</label>'
-        + '<textarea id="fc-nota" rows="3" placeholder="Ex.: falei com o Marcos, vai fechar pedido de '
-        + 'fim de ano em outubro. Pediu tabela dos morteiros de 3 polegadas."></textarea></div>'
-      + '<div class="acoes" style="margin-top:8px">'
-        + '<button class="pri" type="button" data-a="contato">Gravar contato</button>'
-        + '<span class="nota" style="margin:0;align-self:center">ou Ctrl+Enter</span></div>'
     + '</div>'
   + '</div></aside>';
 }
