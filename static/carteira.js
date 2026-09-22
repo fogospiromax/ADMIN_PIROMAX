@@ -167,9 +167,11 @@ function pintarHoje() {
   $('h-n').textContent = R.vencidos || 0;
   $('h-n-sub').textContent = 'clientes com contato vencido';
   $('h-sub').innerHTML = '<b>' + moeda(soma) + '</b> em jogo entre eles<br>'
-    + (R.em_dia || 0) + ' em dia · ' + (R.dispensados || 0) + ' dispensados da rotina<br>'
+    + (R.em_dia || 0) + ' em dia · ' + (R.dispensados || 0) + ' dispensados da rotina'
+    + (R.ocasionais ? ' · ' + R.ocasionais + ' ocasionais fora da fila' : '') + '<br>'
     + 'cadência: ' + (R.cadencia ? R.cadencia.A : 15) + ' dias para A e B, '
-    + (R.cadencia ? R.cadencia.C : 30) + ' para C';
+    + (R.cadencia ? R.cadencia.C : 30) + ' para C'
+    + (R.manuais ? ' · ' + R.manuais + ' classificado(s) por você' : '');
 
   $('h-fichas').innerHTML = '<button class="ficha" type="button" data-f="todos" aria-pressed="'
     + (estado.tipo === 'todos') + '">Tudo <span class="n">' + fila.length + '</span></button>'
@@ -196,20 +198,26 @@ function pintarHoje() {
     + 'Quem for contactado sai da fila e volta sozinho no fim do prazo. '
     + 'O valor ao lado é sempre uma quantia real: quem <b>parou</b> vale o que comprava nesta altura do ano; '
     + 'quem está <b>caindo</b> ou <b>crescendo</b> vale a diferença já acumulada no ano; '
-    + 'quem é <b>novo</b> vale o que já trouxe; quem entra só por <b>rotina</b> não tem nada em jogo além da visita.';
+    + 'quem é <b>novo</b> vale o que já trouxe; quem entra só por <b>rotina</b> não tem nada em jogo além da visita.'
+    + (R.ocasionais ? ' <b>' + R.ocasionais + ' cliente(s) marcados como ocasionais</b> ficam fora desta fila de '
+        + 'propósito, mas continuam contando no faturamento e na análise: são ' + moeda(R.receita_ocasional || 0)
+        + ' de receita que existe e não vira trabalho de rotina.' : '');
 }
 function linhaFila(f) {
   var rot = MOTIVOS.filter(function (m) { return m[0] === f.tipo; })[0] || ['rotina', 'Rotina'];
   return '<div class="linha' + (f.contato_urgente ? '' : ' emdia') + '">'
     + '<span class="faixa f-' + f.tipo + '" aria-hidden="true"></span>'
     + '<button class="corpo" type="button" data-id="' + esc(f.id) + '">'
-      + '<span class="topo"><span class="selo s-' + f.tipo + '">' + rot[1] + '</span>'
+      + '<span class="topo"><span class="selo s-' + f.tipo + '">' + rot[1]
+      + (f.manual ? ' ✎' : '') + '</span>'
       + '<span class="nome">' + esc(f.nome) + '</span>'
       + '<span class="selo s-classe">Classe ' + f.classe + '</span></span>'
       + '<span class="frase">' + esc(f.texto) + '</span>'
       + '<span class="marca' + (f.contato_urgente ? '' : ' ok') + '">'
         + (f.contato_urgente ? '⏱ ' : '✓ ') + esc(f.contato_rotulo)
         + (f.marcas && f.marcas.length ? ' · ' + esc(f.marcas.join(' · ')) : '') + '</span>'
+      + (f.manual ? '<span class="marca obs">✎ classificado por você. O sistema diria: '
+          + esc(f.auto_rotulo) + '</span>' : '')
       + (f.motivo ? '<span class="marca obs">✎ ' + esc(f.motivo) + '</span>' : '')
     + '</button>'
     + '<span class="dir">'
@@ -250,7 +258,9 @@ var VIEWS = [
   ['novo', 'Novos', function (c) { return c.direcao === 'novo'; }],
   ['atrasado', 'Atrasados no ritmo', function (c) { return c.ritmo === 'atrasado' || c.ritmo === 'muito atrasado'; }],
   ['vencido', 'Contato vencido', function (c) { return c.contato_urgente; }],
-  ['dispensa', 'Fora da rotina', function (c) { return c.dispensa_rotina; }],
+  ['ocasional', 'Ocasionais', function (c) { return c.ocasional; }],
+  ['manual', 'Classificados por você', function (c) { return !!c.classe_manual; }],
+  ['dispensa', 'Fora da rotina', function (c) { return c.dispensa_rotina && !c.ocasional; }],
   ['semuf', 'Sem estado', function (c) { return !c.uf_base; }]
 ];
 function listaRegistros() {
@@ -290,7 +300,10 @@ function pintarRegistros() {
       + '<td class="num">' + moeda(c.receita) + '</td>'
       + '<td class="num ' + (v === null ? '' : (v >= 0 ? 'pos' : 'neg')) + '">'
         + (v === null ? '—' : pct(v)) + '</td>'
-      + '<td><span class="selo s-' + d[1] + '">' + d[0] + '</span></td>'
+      + '<td><span class="selo s-' + d[1] + '">' + d[0] + '</span>'
+        + (c.ocasional ? ' <span class="selo s-rotina">ocasional</span>' : '')
+        + (c.classe_manual ? ' <span class="selo s-novo">✎ ' + esc(c.classe_manual) + '</span>' : '')
+        + '</td>'
       + '<td style="white-space:nowrap;font-size:.78rem;color:' + cor + '">' + esc(c.contato_rotulo) + '</td>'
       + '<td class="num">' + c.recencia + ' d</td>'
       + '<td>' + faisca(c.mensal) + '</td></tr>';
@@ -329,6 +342,14 @@ function pintarLote() {
       + '<option value="">Rotina de contato…</option><option value="15">A cada 15 dias</option>'
       + '<option value="30">A cada 30 dias</option><option value="60">A cada 60 dias</option>'
       + '<option value="0">Voltar ao padrão da classe</option><option value="off">Dispensar da rotina</option>'
+    + '</select>'
+    + '<select id="lt-tipo" aria-label="Tipo de relação" style="font:inherit;font-size:.82rem;padding:6px 9px;border:1.5px solid var(--linha);border-radius:8px">'
+      + '<option value="">Tipo de relação…</option>'
+      + (D.tipos || []).map(function (t) { return '<option value="' + t[0] + '">' + t[1] + '</option>'; }).join('')
+    + '</select>'
+    + '<select id="lt-cman" aria-label="Classificação na fila" style="font:inherit;font-size:.82rem;padding:6px 9px;border:1.5px solid var(--linha);border-radius:8px">'
+      + '<option value="">Classificação na fila…</option><option value="__auto">Deixar o sistema decidir</option>'
+      + (D.motivos || []).map(function (m) { return '<option value="' + m[0] + '">' + m[1] + '</option>'; }).join('')
     + '</select>'
     + '<span class="acoes"><button type="button" id="lt-ok" class="pri">Aplicar</button>'
     + '<button type="button" id="lt-nada">Limpar seleção</button></span></div>'
@@ -372,6 +393,7 @@ $('r-lote').addEventListener('click', function (e) {
   var nomes = {};
   ids.forEach(function (i) { if (IX[i]) nomes[i] = IX[i].nome; });
   var uf = $('lt-uf').value, at = $('lt-at').value, cad = $('lt-cad').value;
+  var tipo = $('lt-tipo').value, cman = $('lt-cman').value;
   var fila = [];
   if (uf) fila.push(['/admin/carteira/fichas-lote',
     { itens: ids.map(function (i) { return { cliente_id: i, cliente_nome: nomes[i], estado: uf,
@@ -381,6 +403,13 @@ $('r-lote').addEventListener('click', function (e) {
       atuacao: at === '__todas' ? REGIOES.map(function (r) { return r[0]; }) : [at] }]);
   if (cad) fila.push(['/admin/carteira/rotina-lote',
     { ids: ids, nomes: nomes, dispensa: cad === 'off', cadencia: cad === 'off' ? 0 : +cad }]);
+  if (tipo || cman) {
+    var corpo = { ids: ids, nomes: nomes,
+                  dispensa: cad === 'off', cadencia: cad && cad !== 'off' ? +cad : 0 };
+    if (tipo) corpo.tipo = tipo;
+    if (cman) corpo.classe_manual = cman === '__auto' ? '' : cman;
+    fila.push(['/admin/carteira/rotina-lote', corpo]);
+  }
   if (!fila.length) { recado('Escolha o que aplicar antes.', true); return; }
   var p = Promise.resolve();
   fila.forEach(function (f) { p = p.then(function () { return gravar(f[0], f[1]); }); });
@@ -452,6 +481,30 @@ function fichaCliente(id) {
         + c.classe + ')" value="' + (c.cadencia_propria ? c.cadencia : '') + '"></div>'
     + '</div>'
 
+    + '<div class="cartao">'
+      + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
+      + '<h3>Classificação</h3>'
+      + '<span class="mono" style="font-size:.76rem;color:var(--texto3)">o sistema diz: '
+      + esc(c.motivo_auto_rotulo) + '</span></div>'
+      + '<div class="campo" style="margin-top:9px"><label for="fc-tipo">Tipo de relação</label>'
+        + '<select id="fc-tipo">' + (D.tipos || []).map(function (t) {
+            return '<option value="' + t[0] + '"' + (c.tipo === t[0] ? ' selected' : '') + '>'
+              + t[1] + '</option>'; }).join('') + '</select>'
+        + '<p class="nota" style="margin-top:4px">' + esc(((D.tipos || []).filter(function (t) {
+            return t[0] === c.tipo; })[0] || ['', '', ''])[2]) + '</p></div>'
+      + '<div class="campo" style="margin-top:10px"><label for="fc-cman">Como tratar na fila</label>'
+        + '<select id="fc-cman">'
+        + '<option value="">Deixar o sistema decidir (' + esc(c.motivo_auto_rotulo) + ')</option>'
+        + (D.motivos || []).map(function (m) {
+            return '<option value="' + m[0] + '"' + (c.classe_manual === m[0] ? ' selected' : '') + '>'
+              + m[1] + '</option>'; }).join('') + '</select>'
+        + '<p class="nota" style="margin-top:4px">'
+        + (c.classe_manual
+            ? 'Você trocou a classificação. O rótulo é seu, mas o valor em jogo continua saindo da base, '
+              + 'não de um número inventado para combinar com o rótulo.'
+            : 'O sistema classifica sozinho pelo que os números dizem. Se ele errar, escolha aqui e '
+              + 'escreva o porquê no motivo abaixo.') + '</p></div>'
+    + '</div>'
     + '<div class="campo"><label for="fc-motivo">Motivo da situação (texto livre)</label>'
       + '<textarea id="fc-motivo" rows="2" placeholder="Ex.: o dono faleceu em março; a filha assumiu e ainda não retomou.">'
       + esc(c.motivo) + '</textarea></div>'
@@ -595,6 +648,8 @@ function salvarFicha(id, extra, msg) {
     situacao: $('fc-sit') ? $('fc-sit').value : c.situacao,
     dispensa: c.dispensa_rotina,
     cadencia: $('fc-cad') ? ($('fc-cad').value || 0) : (c.cadencia_propria ? c.cadencia : 0),
+    tipo: $('fc-tipo') ? $('fc-tipo').value : c.tipo,
+    classe_manual: $('fc-cman') ? $('fc-cman').value : c.classe_manual,
     atuacao: Array.prototype.slice.call(document.querySelectorAll('[data-at][aria-pressed="true"]'))
       .map(function (x) { return x.dataset.at; })
   };
