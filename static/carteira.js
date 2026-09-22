@@ -15,7 +15,8 @@
 var IX = {};                      /* id do cliente -> objeto */
 var LEAD_IX = {};                 /* id do lead -> objeto */
 var estado = { tela: 'hoje', tipo: 'todos', limite: 25, view: 'todos',
-               busca: '', ord: 'receita', asc: false, marcados: {} };
+               busca: '', uf: '', cidade: '', ord: 'receita', asc: false, marcados: {},
+               prView: 'funil', prBusca: '', prUf: '', prCidade: '', prEtapa: '' };
 var abertaId = null;              /* ficha aberta, para reabrir após gravar */
 var abertoTipo = 'cliente';
 
@@ -184,12 +185,25 @@ function pintarHoje() {
       }).join('');
 
   var vis = fila.filter(function (f) { return estado.tipo === 'todos' || f.tipo === estado.tipo; });
-  var mostra = vis.slice(0, estado.limite);
-  $('h-fila').innerHTML = mostra.length ? mostra.map(linhaFila).join('')
-    : '<p class="vazio">Ninguém nesta categoria.<br>Se a fila inteira esvaziar, a rotina está em dia.</p>';
-  $('h-mais').hidden = vis.length <= estado.limite;
-  $('h-mais').textContent = 'Mostrar mais ' + Math.min(25, vis.length - estado.limite)
-    + ' de ' + (vis.length - estado.limite) + ' restantes';
+  // Pendentes e feitos são duas listas, não uma lista com linhas apagadas no
+  // meio: o que foi feito hoje sai da ordem de prioridade e vai para o fim,
+  // debaixo de um marcador próprio.
+  var pend = vis.filter(function (f) { return !f.contato_hoje; });
+  var feitos = vis.filter(function (f) { return f.contato_hoje; });
+  var mostra = pend.slice(0, estado.limite);
+  var html = mostra.length ? mostra.map(linhaFila).join('')
+    : '<p class="vazio">Nada pendente nesta categoria.'
+      + (feitos.length ? '<br>Tudo que aparecia aqui já recebeu contato hoje.'
+                       : '<br>Se a fila inteira esvaziar, a rotina está em dia.') + '</p>';
+  if (feitos.length) {
+    html += '<div class="divisor"><span>✓ Contato feito hoje</span>'
+      + '<span class="n">' + feitos.length + '</span></div>'
+      + feitos.map(linhaFila).join('');
+  }
+  $('h-fila').innerHTML = html;
+  $('h-mais').hidden = pend.length <= estado.limite;
+  $('h-mais').textContent = 'Mostrar mais ' + Math.min(25, pend.length - estado.limite)
+    + ' de ' + (pend.length - estado.limite) + ' pendentes';
 
   var nunca = R.sem_contato || 0;
   $('h-nota').innerHTML = '<b>A rotina manda na ordem, o dinheiro desempata.</b> '
@@ -205,7 +219,7 @@ function pintarHoje() {
 }
 function linhaFila(f) {
   var rot = MOTIVOS.filter(function (m) { return m[0] === f.tipo; })[0] || ['rotina', 'Rotina'];
-  return '<div class="linha' + (f.contato_urgente ? '' : ' emdia') + '">'
+  return '<div class="linha' + (f.contato_hoje ? ' feita' : (f.contato_urgente ? '' : ' emdia')) + '">'
     + '<span class="faixa f-' + f.tipo + '" aria-hidden="true"></span>'
     + '<button class="corpo" type="button" data-id="' + esc(f.id) + '">'
       + '<span class="topo"><span class="selo s-' + f.tipo + '">' + rot[1]
@@ -214,7 +228,8 @@ function linhaFila(f) {
       + '<span class="selo s-classe">Classe ' + f.classe + '</span></span>'
       + '<span class="frase">' + esc(f.texto) + '</span>'
       + '<span class="marca' + (f.contato_urgente ? '' : ' ok') + '">'
-        + (f.contato_urgente ? '⏱ ' : '✓ ') + esc(f.contato_rotulo)
+        + (f.contato_hoje ? '✓ Contato feito hoje. Volta em ' + f.cadencia + ' dias.'
+            : (f.contato_urgente ? '⏱ ' : '✓ ') + esc(f.contato_rotulo))
         + (f.marcas && f.marcas.length ? ' · ' + esc(f.marcas.join(' · ')) : '') + '</span>'
       + (f.manual ? '<span class="marca obs">✎ classificado por você. O sistema diria: '
           + esc(f.auto_rotulo) + '</span>' : '')
@@ -223,7 +238,9 @@ function linhaFila(f) {
     + '<span class="dir">'
       + '<span class="valor">' + (f.peso ? moeda(f.peso) : '—') + '</span>'
       + '<span class="leg">' + (f.peso ? 'em jogo' : 'só rotina') + '</span>'
-      + '<button class="btn-ok" type="button" data-c="' + esc(f.id) + '">Contato feito</button>'
+      + (f.contato_hoje
+          ? '<button class="btn-ok desfaz" type="button" data-u="' + esc(f.id) + '">Desfazer</button>'
+          : '<button class="btn-ok" type="button" data-c="' + esc(f.id) + '">Contato feito</button>')
     + '</span></div>';
 }
 $('h-fichas').addEventListener('click', function (e) {
@@ -239,9 +256,29 @@ $('h-fila').addEventListener('click', function (e) {
     gravar('/admin/carteira/contato', { cliente_id: ok.dataset.c }, 'Contato registrado.');
     return;
   }
+  var un = e.target.closest('button[data-u]');
+  if (un) { desfazerContato(un.dataset.u, un); return; }
   var b = e.target.closest('button[data-id]');
   if (b) abrirFicha(b.dataset.id, 'cliente');
 });
+
+/* Desfazer é apagar o registro de hoje daquele cliente, não um estado de tela.
+   Clique errado acontece, e sem isso o jeito de corrigir seria abrir a ficha. */
+function desfazerContato(id, botao) {
+  var hoje = (D.rotina && D.rotina.hoje) || '';
+  var deles = INTER.filter(function (i) {
+    return i.cliente === id && String(i.data).slice(0, 10) === hoje;
+  });
+  if (!deles.length) { recado('Não achei o contato de hoje desse cliente.', true); return; }
+  if (botao) { botao.disabled = true; botao.textContent = 'Desfazendo…'; }
+  var p = Promise.resolve();
+  deles.forEach(function (i) {
+    p = p.then(function () {
+      return fetch('/admin/carteira/interacao/' + i.id, { method: 'DELETE' });
+    });
+  });
+  p.then(function () { recado('Contato desfeito.'); return atualizar(); });
+}
 
 function semBase() {
   return '<p class="vazio"><b>Nenhuma venda carregada ainda.</b><br>'
@@ -258,6 +295,7 @@ var VIEWS = [
   ['novo', 'Novos', function (c) { return c.direcao === 'novo'; }],
   ['atrasado', 'Atrasados no ritmo', function (c) { return c.ritmo === 'atrasado' || c.ritmo === 'muito atrasado'; }],
   ['vencido', 'Contato vencido', function (c) { return c.contato_urgente; }],
+  ['semcidade', 'Sem cidade', function (c) { return !c.cidade; }],
   ['ocasional', 'Ocasionais', function (c) { return c.ocasional; }],
   ['manual', 'Classificados por você', function (c) { return !!c.classe_manual; }],
   ['dispensa', 'Fora da rotina', function (c) { return c.dispensa_rotina && !c.ocasional; }],
@@ -268,7 +306,10 @@ function listaRegistros() {
   var v = VIEWS.filter(function (x) { return x[0] === estado.view; })[0] || VIEWS[0];
   var q = estado.busca.trim().toLowerCase();
   var l = D.clientes.filter(function (c) {
-    return v[2](c) && (!q || c.nome.toLowerCase().indexOf(q) >= 0);
+    return v[2](c)
+      && (!q || c.nome.toLowerCase().indexOf(q) >= 0)
+      && (!estado.uf || c.uf_base === estado.uf)
+      && (!estado.cidade || (c.cidade || '').toLowerCase() === estado.cidade.toLowerCase());
   });
   var k = estado.ord, s = estado.asc ? 1 : -1;
   l.sort(function (a, b) {
@@ -288,27 +329,93 @@ function pintarRegistros() {
       + ' <span class="n">' + D.clientes.filter(v[2]).length + '</span></button>';
   }).join('');
 
+  pintarFiltrosRegistros();
+
   var l = listaRegistros();
   $('r-cnt').textContent = l.length + ' de ' + D.clientes.length;
   $('r-corpo').innerHTML = l.length ? l.map(function (c) {
     var d = DIR[c.direcao] || ['—', 'classe'], v = c.var_ytd_pct;
-    var cor = c.dispensa_rotina ? 'var(--texto3)' : (c.contato_urgente ? 'var(--atencao)' : 'var(--bom)');
+    var ult = INTER.filter(function (i) { return i.cliente === c.id; })[0];
     return '<tr data-id="' + esc(c.id) + '" tabindex="0">'
       + '<td class="marc"><input type="checkbox" data-m="' + esc(c.id) + '"'
         + (estado.marcados[c.id] ? ' checked' : '') + ' aria-label="Marcar ' + esc(c.nome) + '"></td>'
-      + '<td class="nm">' + esc(c.nome) + ' <span class="selo s-classe">' + c.classe + '</span></td>'
+      + '<td class="nm">' + esc(c.nome) + ' <span class="selo s-classe">' + c.classe + '</span>'
+        + (c.ocasional ? ' <span class="selo s-rotina">ocasional</span>' : '') + '</td>'
+      // Cidade e estado se editam aqui mesmo. Sao 161 para preencher a mao, e
+      // abrir e fechar a ficha de cada um seria tres cliques por cliente.
+      + '<td class="edit">'
+        + '<input class="cid" data-cid="' + esc(c.id) + '" value="' + esc(c.cidade) + '"'
+        + ' placeholder="cidade" aria-label="Cidade de ' + esc(c.nome) + '">'
+        + '<select class="uf" data-uf="' + esc(c.id) + '" aria-label="Estado de ' + esc(c.nome) + '">'
+        + '<option value="">UF</option>'
+        + UFS.map(function (u) {
+            return '<option' + (c.uf_base === u ? ' selected' : '') + '>' + u + '</option>'; }).join('')
+        + '</select></td>'
+      + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(c.atuacao_rotulo || '—') + '</td>'
+      + '<td><span class="selo s-' + d[1] + '">' + d[0] + '</span>'
+        + (c.classe_manual ? ' <span class="selo s-novo">✎</span>' : '') + '</td>'
       + '<td class="num">' + moeda(c.receita) + '</td>'
       + '<td class="num ' + (v === null ? '' : (v >= 0 ? 'pos' : 'neg')) + '">'
         + (v === null ? '—' : pct(v)) + '</td>'
-      + '<td><span class="selo s-' + d[1] + '">' + d[0] + '</span>'
-        + (c.ocasional ? ' <span class="selo s-rotina">ocasional</span>' : '')
-        + (c.classe_manual ? ' <span class="selo s-novo">✎ ' + esc(c.classe_manual) + '</span>' : '')
-        + '</td>'
-      + '<td style="white-space:nowrap;font-size:.78rem;color:' + cor + '">' + esc(c.contato_rotulo) + '</td>'
-      + '<td class="num">' + c.recencia + ' d</td>'
-      + '<td>' + faisca(c.mensal) + '</td></tr>';
-  }).join('') : '<tr><td colspan="8"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
+      + '<td class="num">' + cheio(c.ticket).replace('R$ ', '') + '</td>'
+      + '<td class="num">' + c.compras + '</td>'
+      + '<td class="num">' + dia(c.primeira) + '</td>'
+      + '<td class="num">' + (ult ? dia(ult.data) : '—') + '</td></tr>';
+  }).join('') : '<tr><td colspan="11"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
   pintarLote();
+}
+
+/* Os filtros so oferecem o que existe na base. Uma lista de 27 estados com 26
+   vazios e pior do que nao ter filtro. Fica separado do resto porque precisa
+   ser atualizado quando o gestor digita uma cidade nova na propria linha, sem
+   repintar a tabela inteira embaixo do cursor dele. */
+function pintarFiltrosRegistros() {
+  if (!D) return;
+  var ufs = {}, cidades = {};
+  D.clientes.forEach(function (c) {
+    if (c.uf_base) ufs[c.uf_base] = (ufs[c.uf_base] || 0) + 1;
+    if (c.cidade) cidades[c.cidade] = (cidades[c.cidade] || 0) + 1;
+  });
+  var opcoes = function (obj, vazio, sel) {
+    var ks = Object.keys(obj).sort();
+    return '<option value="">' + vazio + (ks.length ? '' : ' (nenhum preenchido)') + '</option>'
+      + ks.map(function (k) {
+          return '<option value="' + esc(k) + '"' + (sel === k ? ' selected' : '') + '>'
+            + esc(k) + ' (' + obj[k] + ')</option>';
+        }).join('');
+  };
+  $('r-uf').innerHTML = opcoes(ufs, 'Todos os estados', estado.uf);
+  $('r-cidade').innerHTML = opcoes(cidades, 'Todas as cidades', estado.cidade);
+}
+
+/* Grava cidade e UF sem sair da linha e sem repintar a tabela inteira: quem
+   esta preenchendo 161 clientes nao pode perder o foco a cada campo. */
+function salvarCelula(id, cidade, uf) {
+  var c = IX[id];
+  if (!c) return Promise.resolve();
+  return fetch('/admin/carteira/fichas-lote', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itens: [{ cliente_id: id, cliente_nome: c.nome,
+                                     cidade: cidade, estado: uf }] })
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (!j.success) { recado(j.erro || 'Nao consegui gravar.', true); return; }
+    c.cidade = cidade; c.uf_base = uf;
+    return fetch('/admin/carteira/dados').then(function (r) { return r.json(); })
+      .then(function (k) {
+        if (!k.success) return;
+        D = k.dados; FICHA = k.fichas; INTER = k.inter; TAREFAS = k.tarefas;
+        ALIASES = k.aliases; CANDIDATOS = k.candidatos; PROSPEC = k.prospec;
+        indexar();
+        pintarAbas();
+        pintarFiltrosRegistros();
+        $('r-views').innerHTML = VIEWS.map(function (x) {
+          return '<button class="ficha" type="button" data-w="' + x[0] + '" aria-pressed="'
+            + (estado.view === x[0]) + '">' + x[1]
+            + ' <span class="n">' + D.clientes.filter(x[2]).length + '</span></button>';
+        }).join('');
+        $('r-cnt').textContent = listaRegistros().length + ' de ' + D.clientes.length;
+      });
+  });
 }
 function faisca(m) {
   if (!m || !m.length) return '';
@@ -364,11 +471,21 @@ $('r-views').addEventListener('click', function (e) {
   estado.view = b.dataset.w; pintarRegistros();
 });
 $('r-busca').addEventListener('input', function (e) { estado.busca = e.target.value; pintarRegistros(); });
+$('r-uf').addEventListener('change', function (e) { estado.uf = e.target.value; pintarRegistros(); });
+$('r-cidade').addEventListener('change', function (e) { estado.cidade = e.target.value; pintarRegistros(); });
 $('r-todos').addEventListener('change', function (e) {
   listaRegistros().forEach(function (c) { estado.marcados[c.id] = e.target.checked; });
   pintarRegistros();
 });
+$('r-tab').addEventListener('change', function (e) {
+  var cid = e.target.closest('input[data-cid]'), uf = e.target.closest('select[data-uf]');
+  if (!cid && !uf) return;
+  var linha = e.target.closest('tr[data-id]'), id = linha.dataset.id;
+  salvarCelula(id, linha.querySelector('input[data-cid]').value.trim(),
+               linha.querySelector('select[data-uf]').value);
+});
 $('r-tab').addEventListener('click', function (e) {
+  if (e.target.closest('.edit')) return;      /* editar nao abre a ficha */
   var cb = e.target.closest('input[data-m]');
   if (cb) { estado.marcados[cb.dataset.m] = cb.checked; pintarLote(); e.stopPropagation(); return; }
   var s = e.target.closest('button[data-s]');
@@ -383,8 +500,16 @@ $('r-tab').addEventListener('click', function (e) {
 });
 $('r-tab').addEventListener('keydown', function (e) {
   if (e.key !== 'Enter') return;
-  var tr = e.target.closest('tr[data-id]');
-  if (tr) abrirFicha(tr.dataset.id, 'cliente');
+  var cid = e.target.closest('input[data-cid]');
+  if (cid) {                                  /* Enter grava e desce uma linha */
+    var tr = cid.closest('tr'), prox = tr.nextElementSibling;
+    cid.blur();
+    if (prox && prox.querySelector('input[data-cid]')) prox.querySelector('input[data-cid]').focus();
+    return;
+  }
+  if (e.target.closest('.edit')) return;
+  var tr2 = e.target.closest('tr[data-id]');
+  if (tr2) abrirFicha(tr2.dataset.id, 'cliente');
 });
 $('r-lote').addEventListener('click', function (e) {
   if (e.target.id === 'lt-nada') { estado.marcados = {}; pintarRegistros(); return; }
@@ -597,6 +722,80 @@ function fichaLead(id) {
   + '</div></aside>';
 }
 
+/* Lead que chega por telefone ou feira, sem planilha no meio. */
+function abrirNovoLead() {
+  abertaId = null; abertoTipo = 'novo';
+  var campo = function (id, rot, extra) {
+    return '<div class="campo"><label for="' + id + '">' + rot + '</label>'
+      + '<input id="' + id + '" ' + (extra || '') + '></div>';
+  };
+  $('tela').innerHTML =
+    '<button class="veu" id="veu" type="button" aria-label="Fechar"></button>'
+  + '<aside class="gaveta" role="dialog" aria-modal="true" aria-label="Novo lead">'
+  + '<div class="gtopo"><div style="min-width:0">'
+    + '<p class="olho" style="margin-bottom:3px">Prospecção</p><h2>Novo lead</h2>'
+    + '<p style="margin-top:4px;color:var(--texto2);font-size:.79rem">'
+    + 'Só o nome da empresa é obrigatório. O resto você preenche quando souber.</p>'
+    + '</div><button class="x" id="fx" type="button" aria-label="Fechar">✕</button></div>'
+  + '<div class="gcorpo">'
+    + campo('nl-nome', 'Empresa', 'placeholder="Nome como aparece na nota" autofocus')
+    + '<div class="grade g2">'
+      + campo('nl-cidade', 'Cidade')
+      + '<div class="campo"><label for="nl-uf">Estado</label><select id="nl-uf">'
+        + '<option value="">—</option>'
+        + UFS.map(function (u) { return '<option>' + u + '</option>'; }).join('') + '</select></div>'
+      + campo('nl-contato', 'Quem é o contato')
+      + campo('nl-tel', 'Telefone')
+    + '</div>'
+    + '<div class="grade g2">'
+      + '<div class="campo"><label for="nl-seg">Tipo de negócio</label>'
+        + '<input id="nl-seg" list="nl-segs" placeholder="Lojista, Shows…">'
+        + '<datalist id="nl-segs">' + ((PROSPEC && PROSPEC.por_segmento) || []).map(function (p) {
+            return '<option value="' + esc(p[0]) + '">'; }).join('') + '</datalist></div>'
+      + '<div class="campo"><label for="nl-etapa">Etapa</label><select id="nl-etapa">'
+        + ETAPAS.map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
+        + '</select></div>'
+    + '</div>'
+    + campo('nl-insta', 'Instagram ou site')
+    + campo('nl-prox', 'Próximo passo', 'placeholder="Ex.: mandar tabela de preço"')
+    + '<div class="campo"><label for="nl-quando">Para quando</label>'
+      + '<input id="nl-quando" type="date"></div>'
+    + '<div class="campo"><label for="nl-obs">Observação</label><textarea id="nl-obs" rows="2"></textarea></div>'
+    + '<div class="acoes"><button class="pri" type="button" data-a="lead-criar">Criar lead</button>'
+      + '<button type="button" data-a="fechar">Cancelar</button></div>'
+    + '<p class="nota">Se essa empresa já estiver na lista ou já comprar da Piromax, o sistema avisa '
+      + 'em vez de criar uma segunda ficha.</p>'
+  + '</div></aside>';
+  document.body.style.overflow = 'hidden';
+  if ($('nl-nome')) $('nl-nome').focus();
+}
+
+function criarLead(botao) {
+  var nome = ($('nl-nome').value || '').trim();
+  if (!nome) { recado('Escreva o nome da empresa.', true); $('nl-nome').focus(); return; }
+  if (botao) { botao.disabled = true; botao.textContent = 'Criando…'; }
+  fetch('/admin/carteira/lead/novo', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      nome: nome, cidade: $('nl-cidade').value, uf: $('nl-uf').value,
+      contato: $('nl-contato').value, telefone: $('nl-tel').value,
+      segmento: $('nl-seg').value, etapa: $('nl-etapa').value,
+      instagram: $('nl-insta').value, proximo: $('nl-prox').value,
+      proximo_em: $('nl-quando').value || null, obs: $('nl-obs').value
+    })
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (!j.success) {
+      recado(j.erro || 'Não consegui criar.', true);
+      if (botao) { botao.disabled = false; botao.textContent = 'Criar lead'; }
+      if (j.id) { fecharFicha(true); atualizar().then(function () { abrirFicha(j.id, 'lead'); }); }
+      return;
+    }
+    recado('Lead criado.');
+    fecharFicha(true);
+    atualizar().then(function () { abrirFicha(j.id, 'lead'); });
+  });
+}
+
 /* um único ouvinte na gaveta: ela é reconstruída a cada gravação */
 $('tela').addEventListener('click', function (e) {
   if (e.target.id === 'veu' || e.target.id === 'fx') { fecharFicha(); return; }
@@ -615,6 +814,8 @@ $('tela').addEventListener('click', function (e) {
   if (!b) return;
   var id = abertaId, a = b.dataset.a;
 
+  if (a === 'lead-criar') { criarLead(b); return; }
+  if (a === 'fechar') { fecharFicha(); return; }
   if (a === 'contato') {
     gravar('/admin/carteira/contato', { cliente_id: id }, 'Contato registrado.');
   } else if (a === 'contato-texto') {
@@ -1126,54 +1327,142 @@ var CORES_ETAPA = { novo: 'var(--frio)', qualificado: 'var(--s1)', contato: 'var
                     ganho: 'var(--bom)', perdido: 'var(--ruim)' };
 var prFiltro = { seg: '', reg: '' };
 
+function prVisiveis() {
+  var P = PROSPEC || { leads: [] };
+  var q = estado.prBusca.trim().toLowerCase();
+  return P.leads.filter(function (x) {
+    return (!prFiltro.seg || (x.segmento || 'sem segmento') === prFiltro.seg)
+        && (!prFiltro.reg || (x.regiao_nome || 'sem estado') === prFiltro.reg)
+        && (!estado.prUf || x.uf === estado.prUf)
+        && (!estado.prCidade || (x.cidade || '') === estado.prCidade)
+        && (!estado.prEtapa || x.etapa === estado.prEtapa)
+        && (!q || x.nome.toLowerCase().indexOf(q) >= 0
+             || (x.cidade || '').toLowerCase().indexOf(q) >= 0);
+  });
+}
+
 function pintarProspeccao() {
   var P = PROSPEC || { leads: [], etapas: [], total: 0, abertos: 0, ganhos: 0, perdidos: 0,
-                       ja_clientes: 0, por_segmento: [], por_regiao: [] };
-  var vis = P.leads.filter(function (x) {
-    return (!prFiltro.seg || (x.segmento || 'sem segmento') === prFiltro.seg)
-        && (!prFiltro.reg || (x.regiao_nome || 'sem estado') === prFiltro.reg);
+                       ja_clientes: 0, por_segmento: [], por_regiao: [], cidades: [],
+                       acompanhar: { vencidos: [], hoje: [], proximos: [], sem_data: [], total: 0 } };
+  var vis = prVisiveis();
+  var A = P.acompanhar || { vencidos: [], hoje: [], proximos: [], sem_data: [], total: 0 };
+
+  /* ── Para acompanhar: o que ficou combinado e tem data ── */
+  var linhaAc = function (x, cor, quando) {
+    return '<button class="acomp" type="button" data-l="' + esc(x.id) + '">'
+      + '<span class="q" style="color:' + cor + '">' + quando + '</span>'
+      + '<span class="t"><b>' + esc(x.nome) + '</b>'
+      + '<small>' + esc(x.proximo || 'sem o que foi combinado escrito')
+      + (x.cidade ? ' · ' + esc([x.cidade, x.uf].filter(Boolean).join('/')) : '')
+      + (x.telefone ? ' · ' + esc(x.telefone) : '') + '</small></span>'
+      + '<span class="e">' + esc(rotuloEtapa(x.etapa)) + '</span></button>';
+  };
+  var acompanhar = '<div class="cartao"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">'
+    + '<h3>Para acompanhar</h3>'
+    + '<span class="mono" style="color:var(--texto3);font-size:.76rem">'
+    + (A.total ? A.total + ' combinado(s) com data' : 'nada combinado ainda') + '</span>'
+    + (A.vencidos.length ? '<span class="selo s-queda" style="margin-left:auto">'
+        + A.vencidos.length + ' vencido(s)</span>' : '') + '</div>'
+    + (A.total
+        ? '<div class="acomps">'
+          + A.vencidos.map(function (x) {
+              return linhaAc(x, 'var(--ruim)', 'venceu há ' + x.atraso + 'd'); }).join('')
+          + A.hoje.map(function (x) { return linhaAc(x, 'var(--atencao)', 'é hoje'); }).join('')
+          + A.proximos.map(function (x) { return linhaAc(x, 'var(--texto2)', dia(x.proximo_em)); }).join('')
+          + A.sem_data.map(function (x) { return linhaAc(x, 'var(--texto3)', 'sem data'); }).join('')
+          + '</div>'
+        : '<p class="nota" style="margin-top:6px">Aqui aparece o que você combinou com cada lead e '
+          + 'marcou uma data. Abra um lead, escreva o próximo passo e o para quando, e ele passa a '
+          + 'cobrar você aqui. Vencido vem primeiro, em vermelho.</p>');
+  acompanhar += '</div>';
+
+  /* ── filtros, valem para o funil e para a lista ── */
+  var ufs = {}, cids = {};
+  P.leads.forEach(function (x) {
+    if (x.uf) ufs[x.uf] = (ufs[x.uf] || 0) + 1;
+    if (x.cidade) cids[x.cidade] = (cids[x.cidade] || 0) + 1;
   });
+  var opc = function (obj, vazio, sel) {
+    return '<option value="">' + vazio + '</option>' + Object.keys(obj).sort().map(function (k) {
+      return '<option value="' + esc(k) + '"' + (sel === k ? ' selected' : '') + '>'
+        + esc(k) + ' (' + obj[k] + ')</option>';
+    }).join('');
+  };
+  var barra = '<div class="barra" style="margin:14px 0 11px">'
+    + '<div class="busca"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+      + 'stroke-width="2" aria-hidden="true" style="color:var(--texto3);flex:0 0 15px">'
+      + '<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>'
+      + '<label for="pr-busca" style="position:absolute;left:-9999px">Buscar lead</label>'
+      + '<input id="pr-busca" type="search" placeholder="Buscar empresa ou cidade…" autocomplete="off" '
+      + 'value="' + esc(estado.prBusca) + '"></div>'
+    + '<label for="pr-uf" style="position:absolute;left:-9999px">Estado</label>'
+    + '<select id="pr-uf" class="filtro">' + opc(ufs, 'Todos os estados', estado.prUf) + '</select>'
+    + '<label for="pr-cidade" style="position:absolute;left:-9999px">Cidade</label>'
+    + '<select id="pr-cidade" class="filtro">' + opc(cids, 'Todas as cidades', estado.prCidade) + '</select>'
+    + '<label for="pr-etapa" style="position:absolute;left:-9999px">Etapa</label>'
+    + '<select id="pr-etapa" class="filtro"><option value="">Todas as etapas</option>'
+      + ETAPAS.map(function (e) {
+          return '<option value="' + e[0] + '"' + (estado.prEtapa === e[0] ? ' selected' : '') + '>'
+            + e[1] + '</option>'; }).join('') + '</select>'
+    + '<span class="mono" style="color:var(--texto3);font-size:.76rem">' + vis.length + ' de ' + P.total + '</span>'
+    + '<span class="acoes" style="margin-left:auto">'
+      + '<button type="button" id="pr-modo">' + (estado.prView === 'funil' ? 'Ver em lista' : 'Ver o funil') + '</button>'
+      + '<button type="button" class="pri" id="pr-novo">Novo lead</button></span>'
+    + (prFiltrando() ? '<button type="button" id="pr-limpa" class="ficha">limpar filtros ✕</button>' : '')
+    + '</div>';
+
+  /* ── funil: todas as colunas rolam por dentro, ninguém fica escondido ── */
   var colunas = ETAPAS.map(function (e) {
     var l = vis.filter(function (x) { return x.etapa === e[0]; });
     return '<div class="cartao col"><div class="cab">'
       + '<i style="background:' + CORES_ETAPA[e[0]] + '"></i><h3>' + e[1] + '</h3>'
       + '<span class="n">' + l.length + '</span></div>'
       + '<p class="nota" style="margin:0">' + e[2] + '</p>'
-      + (l.length ? l.slice(0, 20).map(function (x) {
-            return '<button class="lead" type="button" data-l="' + esc(x.id) + '">'
-              + '<b>' + esc(x.nome)
-              + (x.ja_cliente ? ' <span class="selo s-ritmo">já é cliente</span>' : '') + '</b>'
-              + '<small>' + esc([x.cidade, x.uf].filter(Boolean).join(' / ') || 'sem cidade')
-              + (x.segmento ? ' · ' + esc(x.segmento) : '')
-              + (x.proximo ? ' · ' + esc(x.proximo) : '') + '</small></button>';
-          }).join('')
-          + (l.length > 20 ? '<p class="nota" style="margin:0">e mais ' + (l.length - 20)
-              + ' nesta etapa. Use os filtros abaixo para chegar em quem você quer.</p>' : '')
-        : '<p class="vazio" style="padding:16px 8px;font-size:.78rem">vazio</p>')
+      + (l.length ? '<div class="pilha">' + l.map(cartaoLead).join('') + '</div>'
+          : '<p class="vazio" style="padding:16px 8px;font-size:.78rem">vazio</p>')
       + '</div>';
   }).join('');
 
-  var barrinhas = function (lista, titulo, campo) {
-    if (!lista || !lista.length) return '';
-    var max = lista[0][1] || 1;
+  /* ── lista: a mesma coisa em tabela, para varrer de uma vez ── */
+  var lista = '<div class="tw"><table id="pr-tab"><thead><tr>'
+    + '<th>Empresa</th><th>Cidade</th><th>UF</th><th>Tipo</th><th>Etapa</th>'
+    + '<th>Telefone</th><th>Próximo passo</th></tr></thead><tbody>'
+    + (vis.length ? vis.map(function (x) {
+        return '<tr data-l="' + esc(x.id) + '" tabindex="0">'
+          + '<td class="nm">' + esc(x.nome)
+            + (x.ja_cliente ? ' <span class="selo s-ritmo">já é cliente</span>' : '') + '</td>'
+          + '<td>' + esc(x.cidade || '—') + '</td><td>' + esc(x.uf || '—') + '</td>'
+          + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(x.segmento || '—') + '</td>'
+          + '<td><span class="selo s-classe">' + esc(rotuloEtapa(x.etapa)) + '</span></td>'
+          + '<td class="mono" style="font-size:.78rem">' + esc(x.telefone || '—') + '</td>'
+          + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(x.proximo || '—')
+            + (x.proximo_em ? ' <span class="mono" style="color:var(--texto3)">(' + dia(x.proximo_em) + ')</span>' : '')
+            + '</td></tr>';
+      }).join('')
+      : '<tr><td colspan="7"><p class="vazio">Nenhum lead com esses filtros.</p></td></tr>')
+    + '</tbody></table></div>';
+
+  var barrinhas = function (lista2, titulo, campo) {
+    if (!lista2 || !lista2.length) return '';
+    var max = lista2[0][1] || 1;
     return '<div class="cartao"><h3>' + titulo + '</h3><div style="margin-top:9px">'
-      + lista.map(function (p) {
-          var on = prFiltro[campo] === p[0];
-          return '<button type="button" data-fl="' + campo + '" data-fv="' + esc(p[0])
+      + lista2.map(function (pp) {
+          var on = prFiltro[campo] === pp[0];
+          return '<button type="button" data-fl="' + campo + '" data-fv="' + esc(pp[0])
             + '" style="display:flex;align-items:center;gap:9px;width:100%;background:'
             + (on ? 'var(--roxo-claro)' : 'none') + ';border:0;padding:4px 5px;border-radius:6px;cursor:pointer;margin-bottom:2px">'
             + '<span style="flex:0 0 108px;font-size:.79rem;text-align:left;font-weight:' + (on ? '700' : '500') + '">'
-            + esc(p[0]) + '</span>'
+            + esc(pp[0]) + '</span>'
             + '<span style="flex:1;height:12px;background:var(--linha);border-radius:3px;overflow:hidden;display:block">'
-            + '<span style="display:block;height:100%;width:' + (p[1] / max * 100).toFixed(1)
+            + '<span style="display:block;height:100%;width:' + (pp[1] / max * 100).toFixed(1)
             + '%;background:var(--s1)"></span></span>'
             + '<span class="mono" style="flex:0 0 34px;text-align:right;font-size:.76rem;font-weight:600">'
-            + p[1] + '</span></button>';
+            + pp[1] + '</span></button>';
         }).join('')
-      + '</div><p class="nota">Clique para filtrar o funil. Clique de novo para tirar o filtro.</p></div>';
+      + '</div><p class="nota">Clique para filtrar. Clique de novo para tirar o filtro.</p></div>';
   };
 
-  var filtrando = prFiltro.seg || prFiltro.reg;
   $('pr-corpo').innerHTML =
     '<div class="heroi" style="margin-top:0">'
       + '<div><div class="n">' + P.abertos + '</div><div class="sub">leads em aberto</div></div>'
@@ -1183,27 +1472,55 @@ function pintarProspeccao() {
       + (P.ja_clientes ? '<br><b style="color:var(--atencao)">' + P.ja_clientes
           + ' já compram da Piromax</b> e estão marcados na lista' : '') + '</div>'
     + '</div>'
-    + (filtrando ? '<p class="nota" style="margin:0 0 10px">Mostrando só '
-        + esc([prFiltro.seg, prFiltro.reg].filter(Boolean).join(' · ')) + ' — ' + vis.length
-        + ' de ' + P.total + ' leads. <button type="button" id="pr-limpa" style="background:none;border:0;'
-        + 'color:var(--roxo);cursor:pointer;font:inherit;text-decoration:underline">mostrar todos</button></p>' : '')
-    + '<div class="funil">' + colunas + '</div>'
+    + acompanhar
+    + barra
+    + (estado.prView === 'funil' ? '<div class="funil">' + colunas + '</div>' : lista)
     + '<div class="grade g2" style="margin-top:12px">'
       + barrinhas(P.por_segmento, 'Por tipo de negócio', 'seg')
       + barrinhas(P.por_regiao, 'Por região', 'reg')
     + '</div>'
     + '<div class="cartao" style="margin-top:12px"><h3>Carregar lista de leads</h3>'
       + '<p class="nota" style="margin-top:4px;margin-bottom:11px">Empresa, tipo de lead, atuação, estado, cidade, '
-      + 'telefone e o que mais tiver na planilha — o importador acha as colunas pelo nome do cabeçalho, '
+      + 'telefone e o que mais tiver na planilha. O importador acha as colunas pelo nome do cabeçalho, '
       + 'em qualquer ordem, e entende o estado por extenso. O tipo de lead da planilha vira a etapa do funil, '
       + 'então a qualificação que você já fez não se perde. Quem já está na carteira é marcado na hora.</p>'
       + '<div class="solto" id="solto-leads"><b>Clique ou arraste a lista aqui</b>CSV com cabeçalho</div>'
       + '<div id="pv-leads"></div></div>';
 }
+function prFiltrando() {
+  return !!(prFiltro.seg || prFiltro.reg || estado.prUf || estado.prCidade
+            || estado.prEtapa || estado.prBusca);
+}
+function rotuloEtapa(e) {
+  var x = ETAPAS.filter(function (y) { return y[0] === e; })[0];
+  return x ? x[1] : e;
+}
+function cartaoLead(x) {
+  return '<button class="lead" type="button" data-l="' + esc(x.id) + '">'
+    + '<b>' + esc(x.nome)
+    + (x.ja_cliente ? ' <span class="selo s-ritmo">já é cliente</span>' : '') + '</b>'
+    + '<small>' + esc([x.cidade, x.uf].filter(Boolean).join(' / ') || 'sem cidade')
+    + (x.segmento ? ' · ' + esc(x.segmento) : '')
+    + (x.proximo ? ' · ' + esc(x.proximo) : '') + '</small></button>';
+}
+
 $('pr-corpo').addEventListener('click', function (e) {
+  if (e.target.id === 'pr-novo') { abrirNovoLead(); return; }
+  if (e.target.id === 'pr-modo') {
+    estado.prView = estado.prView === 'funil' ? 'lista' : 'funil';
+    pintarProspeccao();
+    return;
+  }
+  if (e.target.id === 'pr-limpa') {
+    prFiltro = { seg: '', reg: '' };
+    estado.prUf = estado.prCidade = estado.prEtapa = estado.prBusca = '';
+    pintarProspeccao();
+    return;
+  }
+  var tr = e.target.closest('tr[data-l]');
+  if (tr) { abrirFicha(tr.dataset.l, 'lead'); return; }
   var b = e.target.closest('button[data-l]');
   if (b) { abrirFicha(b.dataset.l, 'lead'); return; }
-  if (e.target.id === 'pr-limpa') { prFiltro = { seg: '', reg: '' }; pintarProspeccao(); return; }
   var f = e.target.closest('button[data-fl]');
   if (f) {
     var campo = f.dataset.fl;
@@ -1212,6 +1529,26 @@ $('pr-corpo').addEventListener('click', function (e) {
     return;
   }
   if (e.target.closest('#solto-leads')) $('arq-leads').click();
+});
+$('pr-corpo').addEventListener('change', function (e) {
+  if (e.target.id === 'pr-uf') { estado.prUf = e.target.value; pintarProspeccao(); }
+  else if (e.target.id === 'pr-cidade') { estado.prCidade = e.target.value; pintarProspeccao(); }
+  else if (e.target.id === 'pr-etapa') { estado.prEtapa = e.target.value; pintarProspeccao(); }
+});
+$('pr-corpo').addEventListener('input', function (e) {
+  if (e.target.id !== 'pr-busca') return;
+  estado.prBusca = e.target.value;
+  clearTimeout(pintarProspeccao.t);
+  pintarProspeccao.t = setTimeout(function () {
+    pintarProspeccao();
+    var i = $('pr-busca');
+    if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  }, 220);
+});
+$('pr-corpo').addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') return;
+  var tr = e.target.closest('tr[data-l]');
+  if (tr) abrirFicha(tr.dataset.l, 'lead');
 });
 
 /* ═══ DADOS ══════════════════════════════════════════════════════════════ */
