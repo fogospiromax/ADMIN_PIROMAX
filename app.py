@@ -1150,7 +1150,7 @@ def _carteira_dados():
 
     hoje = _date.fromisoformat(today_sp())
     dados = carteira.calcular(linhas, aliases, fichas, contatos, hoje)
-    prospec = carteira.analisar_leads(leads, dados)
+    prospec = carteira.analisar_leads(leads, dados, hoje)
     return dados, fichas, inter, tarefas, aliases, prospec
 
 
@@ -1642,6 +1642,47 @@ def admin_leads_upload():
     return jsonify({'success': True, 'novos': len(novos),
                     'repetidos': len(repetidos), 'total': total,
                     'ignoradas': len(erros), 'detalhes': erros[:10]})
+
+
+@app.route('/admin/carteira/lead/novo', methods=['POST'])
+@login_required
+def admin_lead_novo():
+    """Lead que chega por telefone ou feira, sem passar por planilha.
+
+    O id sai do nome mais a cidade, igual ao da importacao, entao criar aqui e
+    importar depois a mesma empresa nao gera duas fichas.
+    """
+    d = request.get_json(silent=True) or {}
+    nome = (d.get('nome') or '').strip().upper()[:200]
+    if not nome:
+        return jsonify({'success': False, 'erro': 'o nome da empresa é obrigatório'}), 400
+    cidade = (d.get('cidade') or '').strip()[:120]
+    lid = carteira.id_lead(nome, cidade)
+    etapa = carteira.normalizar_etapa(d.get('etapa') or 'novo')
+    agora = now_sp_str()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT nome FROM carteira_lead WHERE id=%s', (lid,))
+    ja = cur.fetchone()
+    if ja:
+        cur.close()
+        conn.close()
+        return jsonify({'success': False, 'erro': 'esse lead já está na lista', 'id': lid}), 409
+    cur.execute('''
+        INSERT INTO carteira_lead (id, nome, cidade, uf, contato, telefone, email, etapa,
+                                   segmento, instagram, obs, proximo, proximo_em,
+                                   origem_arq, criado_em, atualizado_em)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    ''', (lid, nome, cidade, carteira.normalizar_uf(d.get('uf') or ''),
+          (d.get('contato') or '')[:120], (d.get('telefone') or '')[:40],
+          (d.get('email') or '')[:160], etapa, (d.get('segmento') or '')[:60],
+          (d.get('instagram') or '')[:300], (d.get('obs') or '')[:2000],
+          (d.get('proximo') or '')[:300], (d.get('proximo_em') or None),
+          'cadastrado à mão', agora, agora))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'id': lid})
 
 
 @app.route('/admin/carteira/lead', methods=['POST'])

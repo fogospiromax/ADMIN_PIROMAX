@@ -352,6 +352,7 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
             'ocasionais': sum(1 for n in nomes if C[n]['ocasional']),
             'receita_ocasional': sum(C[n]['receita'] for n in nomes if C[n]['ocasional']),
             'manuais': sum(1 for n in nomes if C[n]['classe_manual']),
+            'feitos_hoje': sum(1 for n in nomes if C[n]['contato_hoje']),
             'sem_contato': sum(1 for n in nomes if C[n]['contato_ultimo'] is None),
         },
         'tipos': [[k, v[0], v[1]] for k, v in TIPOS.items()],
@@ -399,6 +400,7 @@ def _rotina(c, ficha, ultimo, hoje):
     c['cadencia'] = cad if cad > 0 else CADENCIA.get(c['classe'], 30)
     c['cadencia_propria'] = cad > 0
     c['contato_ultimo'] = ultimo.isoformat() if ultimo else None
+    c['contato_hoje'] = False
 
     if c['dispensa_rotina']:
         c.update(contato_dias=None, contato_atraso=-10 ** 9,
@@ -412,6 +414,7 @@ def _rotina(c, ficha, ultimo, hoje):
         return
 
     dias = (hoje - ultimo).days
+    c['contato_hoje'] = (dias == 0)
     atraso = dias - c['cadencia']
     if atraso > 0:
         rot = 'Contato vencido há %d dia%s' % (atraso, '' if atraso == 1 else 's')
@@ -458,9 +461,12 @@ def _fila(nomes, C):
         if c['encerrado'] or c['ocasional']:
             continue
         m = _aplicar_manual(c, _motivo(c))
-        if c['dispensa_rotina'] and not m:
+        # Quem foi contactado hoje continua na tela ate o dia virar, marcado
+        # como feito. Sumir no clique faz parecer que o clique nao funcionou, e
+        # some justamente com a prova do trabalho que a pessoa acabou de fazer.
+        if c['dispensa_rotina'] and not m and not c['contato_hoje']:
             continue
-        if not c['contato_urgente'] and not m:
+        if not c['contato_urgente'] and not m and not c['contato_hoje']:
             continue
         tipo, rotulo, peso, texto = m or (
             'rotina', 'Rotina', 0.0,
@@ -480,9 +486,12 @@ def _fila(nomes, C):
             'contato_rotulo': c['contato_rotulo'],
             'contato_atraso': c['contato_atraso'],
             'contato_urgente': c['contato_urgente'],
+            'contato_hoje': c['contato_hoje'],
             'cadencia': c['cadencia'],
         })
-    fila.sort(key=lambda x: (-x['contato_atraso'], -x['peso'], -x['receita']))
+    # Feito hoje desce para o fim, sem sair da tela.
+    fila.sort(key=lambda x: (x['contato_hoje'], -x['contato_atraso'],
+                             -x['peso'], -x['receita']))
     return fila
 
 
@@ -1035,7 +1044,7 @@ def ler_csv_leads(texto):
     return leads, erros
 
 
-def analisar_leads(leads, clientes_dados=None):
+def analisar_leads(leads, clientes_dados=None, hoje=None):
     """Organiza os leads e cruza com a carteira.
 
     O cruzamento e a parte que importa: importar uma lista de feira e sair
@@ -1082,7 +1091,47 @@ def analisar_leads(leads, clientes_dados=None):
         'por_segmento': _contar(saida, lambda d: d.get('segmento') or 'sem segmento'),
         'por_regiao': _contar(saida, lambda d: d.get('regiao_nome') or 'sem estado'),
         'por_uf': _contar(saida, lambda d: d.get('uf') or '—'),
+        'cidades': sorted({d['cidade'] for d in saida if d.get('cidade')}),
+        'acompanhar': _acompanhar(saida, hoje),
     }
+
+
+def _acompanhar(leads, hoje):
+    """Os combinados com data marcada, separados por quem ja venceu.
+
+    So entra lead aberto: cobrar follow-up de quem ja foi ganho ou perdido e
+    trabalho que nao existe mais.
+    """
+    if not hoje:
+        return {'vencidos': [], 'hoje': [], 'proximos': [], 'sem_data': [], 'total': 0}
+    grupos = {'vencidos': [], 'hoje': [], 'proximos': [], 'sem_data': []}
+    for d in leads:
+        if d['etapa'] not in ETAPAS_ABERTAS or not (d.get('proximo') or d.get('proximo_em')):
+            continue
+        quando = d.get('proximo_em') or ''
+        item = {'id': d['id'], 'nome': d['nome'], 'etapa': d['etapa'],
+                'cidade': d.get('cidade', ''), 'uf': d.get('uf', ''),
+                'telefone': d.get('telefone', ''),
+                'proximo': d.get('proximo', ''), 'proximo_em': quando}
+        if not quando:
+            grupos['sem_data'].append(item)
+            continue
+        try:
+            dt = date.fromisoformat(str(quando)[:10])
+        except ValueError:
+            grupos['sem_data'].append(item)
+            continue
+        item['atraso'] = (hoje - dt).days
+        if dt < hoje:
+            grupos['vencidos'].append(item)
+        elif dt == hoje:
+            grupos['hoje'].append(item)
+        else:
+            grupos['proximos'].append(item)
+    grupos['vencidos'].sort(key=lambda x: x['proximo_em'])
+    grupos['proximos'].sort(key=lambda x: x['proximo_em'])
+    grupos['total'] = sum(len(grupos[k]) for k in ('vencidos', 'hoje', 'proximos', 'sem_data'))
+    return grupos
 
 
 def _contar(itens, chave):
