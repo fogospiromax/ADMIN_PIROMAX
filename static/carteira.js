@@ -171,6 +171,7 @@ function pintarHoje() {
   // ficam atras da etiqueta "Contato em dia". Misturar os dois faz o numero do
   // topo prometer mais trabalho do que existe.
   var pend = fila.filter(function (f) { return f.contato_urgente; });
+  var prio = pend.filter(function (f) { return f.prioridade; });
   var emdia = fila.filter(function (f) { return !f.contato_urgente; });
   var soma = pend.reduce(function (a, f) { return a + (f.peso || 0); }, 0);
 
@@ -193,12 +194,15 @@ function pintarHoje() {
           + (estado.tipo === m[0]) + '"><i style="background:' + m[2] + '"></i>'
           + m[1] + ' <span class="n">' + n + '</span></button>';
       }).join('')
+    + (prio.length ? '<button class="ficha prio" type="button" data-f="prioridade" aria-pressed="'
+        + (estado.tipo === 'prioridade') + '">★ Prioridade <span class="n">' + prio.length + '</span></button>' : '')
     + (emdia.length ? '<button class="ficha feito" type="button" data-f="emdia" aria-pressed="'
         + (estado.tipo === 'emdia') + '"><i style="background:var(--bom)"></i>Contato em dia '
         + '<span class="n">' + emdia.length + '</span></button>' : '');
 
   var vis;
   if (estado.tipo === 'emdia') vis = emdia;
+  else if (estado.tipo === 'prioridade') vis = prio;
   else vis = pend.filter(function (f) { return estado.tipo === 'todos' || f.tipo === estado.tipo; });
 
   var mostra = vis.slice(0, estado.limite);
@@ -221,7 +225,12 @@ function pintarHoje() {
     return;
   }
   var nunca = R.sem_contato || 0;
-  $('h-nota').innerHTML = '<b>A rotina manda na ordem, o dinheiro desempata.</b> '
+  $('h-nota').innerHTML = (prio.length
+      ? '<b>Prioridade vem antes de tudo.</b> ' + prio.length + ' cliente(s) que você marcou '
+        + 'ficam no topo da fila, na frente de quem está vencido há mais tempo, porque a sua '
+        + 'decisão vale mais que o critério calculado. '
+      : '')
+    + '<b>Depois disso, a rotina manda na ordem e o dinheiro desempata.</b> '
     + (nunca ? 'Há ' + nunca + ' cliente(s) sem nenhum contato registrado; enquanto estiverem empatados '
         + 'em "nunca contactado", é o dinheiro em jogo que define a ordem. ' : '')
     + 'Quem for contactado sai daqui na hora e reaparece em <b>Contato em dia</b> até vencer o prazo. '
@@ -234,10 +243,13 @@ function pintarHoje() {
 }
 function linhaFila(f) {
   var rot = MOTIVOS.filter(function (m) { return m[0] === f.tipo; })[0] || ['rotina', 'Rotina'];
-  return '<div class="linha' + (f.contato_hoje ? ' feita' : (f.contato_urgente ? '' : ' emdia')) + '">'
+  return '<div class="linha' + (f.prioridade ? ' prio' : '')
+    + (f.contato_hoje ? ' feita' : (f.contato_urgente ? '' : ' emdia')) + '">'
     + '<span class="faixa f-' + f.tipo + '" aria-hidden="true"></span>'
     + '<button class="corpo" type="button" data-id="' + esc(f.id) + '">'
-      + '<span class="topo"><span class="selo s-' + f.tipo + '">' + rot[1]
+      + '<span class="topo">'
+      + (f.prioridade ? '<span class="selo s-prio">★ Prioridade</span>' : '')
+      + '<span class="selo s-' + f.tipo + '">' + rot[1]
       + (f.manual ? ' ✎' : '') + '</span>'
       + '<span class="nome">' + esc(f.nome) + '</span>'
       + '<span class="selo s-classe">Classe ' + f.classe + '</span></span>'
@@ -255,7 +267,7 @@ function linhaFila(f) {
       + '<span class="leg">' + (f.peso ? 'em jogo' : 'só rotina') + '</span>'
       + (f.contato_hoje
           ? '<button class="btn-ok desfaz" type="button" data-u="' + esc(f.id) + '">Desfazer</button>'
-          : '<button class="btn-ok" type="button" data-c="' + esc(f.id) + '">Contato feito</button>')
+          : '<button class="btn-ok" type="button" data-c="' + esc(f.id) + '">Registrar contato</button>')
     + '</span></div>';
 }
 $('h-fichas').addEventListener('click', function (e) {
@@ -266,11 +278,7 @@ $('h-fichas').addEventListener('click', function (e) {
 $('h-mais').addEventListener('click', function () { estado.limite += 25; pintarHoje(); });
 $('h-fila').addEventListener('click', function (e) {
   var ok = e.target.closest('button[data-c]');
-  if (ok) {
-    ok.disabled = true; ok.textContent = 'Gravando…';
-    gravar('/admin/carteira/contato', { cliente_id: ok.dataset.c }, 'Contato registrado.');
-    return;
-  }
+  if (ok) { abrirFicha(ok.dataset.c, 'cliente', false, true); return; }
   var un = e.target.closest('button[data-u]');
   if (un) { desfazerContato(un.dataset.u, un); return; }
   var b = e.target.closest('button[data-id]');
@@ -310,6 +318,7 @@ var VIEWS = [
   ['novo', 'Novos', function (c) { return c.direcao === 'novo'; }],
   ['atrasado', 'Atrasados no ritmo', function (c) { return c.ritmo === 'atrasado' || c.ritmo === 'muito atrasado'; }],
   ['vencido', 'Contato vencido', function (c) { return c.contato_urgente; }],
+  ['prioridade', 'Prioridade', function (c) { return c.prioridade; }],
   ['semcidade', 'Sem cidade', function (c) { return !c.cidade; }],
   ['ocasional', 'Ocasionais', function (c) { return c.ocasional; }],
   ['manual', 'Classificados por você', function (c) { return !!c.classe_manual; }],
@@ -354,8 +363,11 @@ function pintarRegistros() {
     return '<tr data-id="' + esc(c.id) + '" tabindex="0">'
       + '<td class="marc"><input type="checkbox" data-m="' + esc(c.id) + '"'
         + (estado.marcados[c.id] ? ' checked' : '') + ' aria-label="Marcar ' + esc(c.nome) + '"></td>'
-      + '<td class="nm">' + esc(c.nome) + ' <span class="selo s-classe">' + c.classe + '</span>'
-        + (c.ocasional ? ' <span class="selo s-rotina">ocasional</span>' : '') + '</td>'
+      + '<td class="nm">' + (c.prioridade ? '<span class="estrela">★</span> ' : '')
+        + esc(c.nome) + ' <span class="selo s-classe">' + c.classe + '</span>'
+        + (c.ocasional ? ' <span class="selo s-rotina">ocasional</span>' : '')
+        + (c.alias && c.alias.length ? ' <span class="selo s-rotina" title="' + esc(c.alias.join(', '))
+            + '">+' + c.alias.length + ' nome(s)</span>' : '') + '</td>'
       // Cidade e estado se editam aqui mesmo. Sao 161 para preencher a mao, e
       // abrir e fechar a ficha de cada um seria tres cliques por cliente.
       + '<td class="edit"><div class="par2">'
@@ -473,12 +485,49 @@ function pintarLote() {
       + '<option value="">Classificação na fila…</option><option value="__auto">Deixar o sistema decidir</option>'
       + (D.motivos || []).map(function (m) { return '<option value="' + m[0] + '">' + m[1] + '</option>'; }).join('')
     + '</select>'
-    + '<span class="acoes"><button type="button" id="lt-ok" class="pri">Aplicar</button>'
-    + '<button type="button" id="lt-nada">Limpar seleção</button></span></div>'
-    + '<p class="nota" style="margin-top:7px">Só os campos preenchidos são gravados. O resto de cada ficha fica como está.</p></div>';
+    + '<span class="acoes">'
+      + '<button type="button" id="lt-prio" class="pri">★ Prioridade</button>'
+      + '<button type="button" id="lt-semprio">Tirar prioridade</button>'
+      + '<button type="button" id="lt-ok">Aplicar os campos acima</button>'
+      + (ids.length > 1 ? '<button type="button" id="lt-uni">Unificar em um só</button>' : '')
+      + '<button type="button" id="lt-nada">Limpar seleção</button></span></div>'
+    + (estado.unificando ? painelUnificar(ids) : '')
+    + '<p class="nota" style="margin-top:7px">Só os campos preenchidos são gravados. '
+      + 'O resto de cada ficha fica como está.</p></div>';
 }
 var UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI',
            'PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
+
+/* Unificar cadastro e juntar historico de venda, contato e tarefa sob um nome
+   so. Quem decide qual nome fica e o gestor, porque o sistema nao sabe qual e
+   o certo: o maior nem sempre e o nome que ele usa no dia a dia. */
+function painelUnificar(ids) {
+  var lista = ids.map(function (i) { return IX[i]; }).filter(Boolean)
+    .sort(function (a, b) { return b.receita - a.receita; });
+  if (lista.length < 2) return '';
+  var soma = lista.reduce(function (s, c) { return s + c.receita; }, 0);
+  var compras = lista.reduce(function (s, c) { return s + c.compras; }, 0);
+  return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--linha)">'
+    + '<h3>Qual nome fica?</h3>'
+    + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Os outros viram apelidos dele. '
+      + 'As vendas somam, e os contatos, tarefas e o que estiver escrito na ficha vão junto. '
+      + 'Dá para desfazer depois em <b>Dados</b>.</p>'
+    + lista.map(function (c, i) {
+        return '<label style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;'
+          + 'cursor:pointer;border:1.5px solid ' + (i === 0 ? 'var(--roxo-borda)' : 'transparent') + '">'
+          + '<input type="radio" name="uni-nome" value="' + esc(c.nome) + '"' + (i === 0 ? ' checked' : '')
+          + ' style="width:16px;height:16px;accent-color:var(--roxo)">'
+          + '<span style="flex:1;min-width:0"><b style="font-size:.86rem;color:var(--roxo-forte)">'
+          + esc(c.nome) + '</b><br><span class="nota" style="margin:0">' + moeda(c.receita) + ' · '
+          + c.compras + ' compras · desde ' + dia(c.primeira)
+          + (c.cidade ? ' · ' + esc(c.cidade) : '') + '</span></span></label>';
+      }).join('')
+    + '<p class="nota"><b>Depois de unificar:</b> um cliente só, ' + moeda(soma) + ' e '
+      + compras + ' compras somadas.</p>'
+    + '<div class="acoes" style="margin-top:9px">'
+      + '<button type="button" class="pri" id="lt-uni-ok">Unificar os ' + lista.length + '</button>'
+      + '<button type="button" id="lt-uni-nao">Cancelar</button></div></div>';
+}
 
 $('r-views').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-w]');
@@ -527,7 +576,37 @@ $('r-tab').addEventListener('keydown', function (e) {
   if (tr2) abrirFicha(tr2.dataset.id, 'cliente');
 });
 $('r-lote').addEventListener('click', function (e) {
-  if (e.target.id === 'lt-nada') { estado.marcados = {}; pintarRegistros(); return; }
+  var marcados = function () {
+    return Object.keys(estado.marcados).filter(function (k) { return estado.marcados[k]; });
+  };
+  var nomesDe = function (l) {
+    var m = {}; l.forEach(function (i) { if (IX[i]) m[i] = IX[i].nome; }); return m;
+  };
+  if (e.target.id === 'lt-nada') {
+    estado.marcados = {}; estado.unificando = false; pintarRegistros(); return;
+  }
+  if (e.target.id === 'lt-prio' || e.target.id === 'lt-semprio') {
+    var l = marcados();
+    gravar('/admin/carteira/rotina-lote',
+      { ids: l, nomes: nomesDe(l), prioridade: e.target.id === 'lt-prio',
+        dispensa: false, cadencia: 0 },
+      e.target.id === 'lt-prio' ? 'Marcados como prioridade.' : 'Prioridade removida.')
+      .then(function () { estado.marcados = {}; pintarRegistros(); });
+    return;
+  }
+  if (e.target.id === 'lt-uni') { estado.unificando = true; pintarLote(); return; }
+  if (e.target.id === 'lt-uni-nao') { estado.unificando = false; pintarLote(); return; }
+  if (e.target.id === 'lt-uni-ok') {
+    var esc2 = document.querySelector('input[name="uni-nome"]:checked');
+    if (!esc2) { recado('Escolha qual nome fica.', true); return; }
+    var todos = marcados().map(function (i) { return IX[i] ? IX[i].nome : ''; }).filter(Boolean);
+    e.target.disabled = true; e.target.textContent = 'Unificando…';
+    gravar('/admin/carteira/unificar',
+      { canonico: esc2.value, apelidos: todos.filter(function (n) { return n !== esc2.value; }) },
+      'Cadastros unificados.')
+      .then(function () { estado.marcados = {}; estado.unificando = false; pintarRegistros(); });
+    return;
+  }
   if (e.target.id !== 'lt-ok') return;
   var ids = Object.keys(estado.marcados).filter(function (k) { return estado.marcados[k]; });
   var nomes = {};
@@ -557,12 +636,19 @@ $('r-lote').addEventListener('click', function (e) {
 });
 
 /* ═══ FICHA (gaveta com endereço próprio) ════════════════════════════════ */
-function abrirFicha(id, tipo, semRolar) {
+function abrirFicha(id, tipo, semRolar, focoContato) {
   tipo = tipo || 'cliente';
   abertaId = id; abertoTipo = tipo;
   history.replaceState(null, '', '#/' + (tipo === 'lead' ? 'lead' : 'cliente') + '/' + id);
   $('tela').innerHTML = tipo === 'lead' ? fichaLead(id) : fichaCliente(id);
   document.body.style.overflow = 'hidden';
+  // Vindo da fila, a ficha ja abre no campo de escrever o que foi conversado.
+  var nota = focoContato ? $('fc-nota') : null;
+  if (nota) {
+    nota.scrollIntoView({ block: 'center' });
+    nota.focus();
+    return;
+  }
   var x = $('fx');
   if (x && !semRolar) x.focus();
 }
@@ -574,6 +660,13 @@ function fecharFicha(silencioso) {
 }
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && $('tela').innerHTML) fecharFicha();
+});
+
+$('tela').addEventListener('keydown', function (e) {
+  if (e.target.id === 'fc-nota' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    gravarContato(abertaId, null);
+  }
 });
 
 function stat(k, v) { return '<div class="stat"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'; }
@@ -610,9 +703,11 @@ function fichaCliente(id) {
       + (c.cadencia_propria ? ' (cadência própria deste cliente)' : ' (padrão da classe ' + c.classe + ')') + '. '
       + (c.dispensa_rotina
           ? 'Ele está fora da rotina e só aparece na fila se houver alerta comercial.'
-          : 'Registrar um contato zera o relógio e ele volta sozinho no fim do prazo.') + '</p>'
+          : 'O relógio zera quando você registra o contato em <b>Contatos</b>, no fim desta ficha. '
+            + 'É o único lugar que grava contato, e escrever o que foi conversado é obrigatório.') + '</p>'
       + '<div class="acoes" style="margin-top:10px">'
-        + '<button class="pri" type="button" data-a="contato">Registrar contato</button>'
+        + '<button class="pri" type="button" data-a="prioridade">'
+          + (c.prioridade ? '★ Tirar a prioridade' : '★ Marcar como prioridade') + '</button>'
         + '<button type="button" data-a="dispensa">'
           + (c.dispensa_rotina ? 'Voltar para a rotina' : 'Não precisa de rotina') + '</button>'
       + '</div>'
@@ -682,16 +777,22 @@ function fichaCliente(id) {
       + stat('Área de atuação', c.atuacao_rotulo || 'não preenchida')
       + (c.alias && c.alias.length ? stat('Também aparecia como', esc(c.alias.join(', '))) : '')
     + '</div>'
-    + '<div class="cartao"><h3 style="margin-bottom:9px">Histórico de contatos</h3>'
+    + '<div class="cartao" id="bloco-contato"><h3 style="margin-bottom:9px">Contatos</h3>'
+      + '<p class="nota" style="margin:0 0 10px">Este é o único lugar de registrar contato, '
+      + 'e escrever o que foi conversado é obrigatório. Um contato em branco zera o relógio da '
+      + 'rotina e não deixa nada para quem abrir a ficha depois.</p>'
       + (log.length ? '<div class="hist">' + log.map(function (i) {
           return '<div class="it"><span class="d">' + dia(i.data) + '</span>'
             + '<span class="t">' + esc(i.resumo) + '</span>'
             + '<button class="del" type="button" data-del="' + esc(i.id) + '" aria-label="Apagar">✕</button></div>';
         }).join('') + '</div>'
         : '<p class="nota" style="margin-top:0">Nenhum contato registrado ainda.</p>')
-      + '<div class="campo" style="margin-top:11px"><label for="fc-nota">Registrar um contato agora</label>'
-        + '<textarea id="fc-nota" rows="2" placeholder="O que foi conversado."></textarea></div>'
-      + '<div class="acoes" style="margin-top:8px"><button type="button" data-a="contato-texto">Gravar contato</button></div>'
+      + '<div class="campo" style="margin-top:11px"><label for="fc-nota">O que foi conversado</label>'
+        + '<textarea id="fc-nota" rows="3" placeholder="Ex.: falei com o Marcos, vai fechar pedido de '
+        + 'fim de ano em outubro. Pediu tabela dos morteiros de 3 polegadas."></textarea></div>'
+      + '<div class="acoes" style="margin-top:8px">'
+        + '<button class="pri" type="button" data-a="contato">Gravar contato</button>'
+        + '<span class="nota" style="margin:0;align-self:center">ou Ctrl+Enter</span></div>'
     + '</div>'
   + '</div></aside>';
 }
@@ -860,12 +961,16 @@ $('tela').addEventListener('click', function (e) {
 
   if (a === 'lead-criar') { criarLead(b); return; }
   if (a === 'fechar') { fecharFicha(); return; }
+  if (a === 'ir-contato') {
+    var alvo = $('fc-nota');
+    if (alvo) { alvo.scrollIntoView({ block: 'center' }); alvo.focus(); }
+    return;
+  }
   if (a === 'contato') {
-    gravar('/admin/carteira/contato', { cliente_id: id }, 'Contato registrado.');
-  } else if (a === 'contato-texto') {
-    var t = ($('fc-nota').value || '').trim();
-    if (!t) { recado('Escreva o que foi conversado.', true); return; }
-    gravar('/admin/carteira/contato', { cliente_id: id, resumo: t, tipo: 'contato' }, 'Contato registrado.');
+    gravarContato(id, b);
+  } else if (a === 'prioridade') {
+    salvarFicha(id, { prioridade: !IX[id].prioridade },
+      IX[id].prioridade ? 'Prioridade removida.' : 'Marcado como prioridade.');
   } else if (a === 'dispensa') {
     salvarFicha(id, { dispensa: !IX[id].dispensa_rotina },
       IX[id].dispensa_rotina ? 'De volta à rotina.' : 'Fora da rotina.');
@@ -885,6 +990,19 @@ $('tela').addEventListener('click', function (e) {
   }
 });
 
+function gravarContato(id, botao) {
+  var campo = $('fc-nota');
+  var t = campo ? (campo.value || '').trim() : '';
+  if (!t) {
+    recado('Escreva o que foi conversado antes de gravar.', true);
+    if (campo) { campo.scrollIntoView({ block: 'center' }); campo.focus(); }
+    return;
+  }
+  if (botao) { botao.disabled = true; botao.textContent = 'Gravando…'; }
+  gravar('/admin/carteira/contato', { cliente_id: id, resumo: t, tipo: 'contato' },
+         'Contato registrado.');
+}
+
 function salvarFicha(id, extra, msg) {
   var c = IX[id];
   var corpo = {
@@ -895,6 +1013,7 @@ function salvarFicha(id, extra, msg) {
     situacao: $('fc-sit') ? $('fc-sit').value : c.situacao,
     dispensa: c.dispensa_rotina,
     cadencia: $('fc-cad') ? ($('fc-cad').value || 0) : (c.cadencia_propria ? c.cadencia : 0),
+    prioridade: c.prioridade,
     tipo: $('fc-tipo') ? $('fc-tipo').value : c.tipo,
     classe_manual: $('fc-cman') ? $('fc-cman').value : c.classe_manual,
     atuacao: Array.prototype.slice.call(document.querySelectorAll('[data-at][aria-pressed="true"]'))
