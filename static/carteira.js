@@ -16,7 +16,8 @@ var IX = {};                      /* id do cliente -> objeto */
 var LEAD_IX = {};                 /* id do lead -> objeto */
 var estado = { tela: 'hoje', tipo: 'todos', limite: 25, view: 'todos',
                busca: '', uf: '', cidade: '', ord: 'receita', asc: false, marcados: {},
-               prView: 'funil', prBusca: '', prUf: '', prCidade: '', prEtapa: '' };
+               prView: 'funil', prBusca: '', prUf: '', prCidade: '', prEtapa: '',
+               prRevenda: '', prMarcados: {} };
 var abertaId = null;              /* ficha aberta, para reabrir após gravar */
 var abertoTipo = 'cliente';
 
@@ -123,7 +124,8 @@ var TELAS = [['hoje', 'Hoje'], ['registros', 'Registros'], ['prospeccao', 'Prosp
 function pintarAbas() {
   $('abas').innerHTML = TELAS.map(function (t) {
     var n = '';
-    if (t[0] === 'hoje') n = D && D.fila ? D.fila.length : 0;
+    if (t[0] === 'hoje') n = D && D.fila
+      ? D.fila.filter(function (f) { return f.contato_urgente; }).length : 0;
     else if (t[0] === 'registros') n = D && D.clientes ? D.clientes.length : 0;
     else if (t[0] === 'prospeccao') n = PROSPEC ? PROSPEC.abertos : 0;
     return '<button class="aba" role="tab" type="button" data-t="' + t[0] + '" aria-selected="'
@@ -163,53 +165,66 @@ window.addEventListener('hashchange', rota);
 function pintarHoje() {
   if (!D) { $('h-fila').innerHTML = semBase(); return; }
   var fila = D.fila || [], R = D.rotina || {};
-  var soma = fila.reduce(function (a, f) { return a + (f.peso || 0); }, 0);
 
-  $('h-n').textContent = R.vencidos || 0;
-  $('h-n-sub').textContent = 'clientes com contato vencido';
+  // A fila de trabalho e so quem esta com contato vencido. Quem ja esta em dia,
+  // quem acabou de ser contactado e quem nao tem rotina saem da contagem e
+  // ficam atras da etiqueta "Contato em dia". Misturar os dois faz o numero do
+  // topo prometer mais trabalho do que existe.
+  var pend = fila.filter(function (f) { return f.contato_urgente; });
+  var emdia = fila.filter(function (f) { return !f.contato_urgente; });
+  var soma = pend.reduce(function (a, f) { return a + (f.peso || 0); }, 0);
+
+  $('h-n').textContent = pend.length;
+  $('h-n-sub').textContent = 'clientes para contactar';
   $('h-sub').innerHTML = '<b>' + moeda(soma) + '</b> em jogo entre eles<br>'
-    + (R.em_dia || 0) + ' em dia · ' + (R.dispensados || 0) + ' dispensados da rotina'
+    + emdia.length + ' com contato em dia'
+    + (R.feitos_hoje ? ', sendo ' + R.feitos_hoje + ' feito(s) hoje' : '')
     + (R.ocasionais ? ' · ' + R.ocasionais + ' ocasionais fora da fila' : '') + '<br>'
     + 'cadência: ' + (R.cadencia ? R.cadencia.A : 15) + ' dias para A e B, '
     + (R.cadencia ? R.cadencia.C : 30) + ' para C'
     + (R.manuais ? ' · ' + R.manuais + ' classificado(s) por você' : '');
 
   $('h-fichas').innerHTML = '<button class="ficha" type="button" data-f="todos" aria-pressed="'
-    + (estado.tipo === 'todos') + '">Tudo <span class="n">' + fila.length + '</span></button>'
+    + (estado.tipo === 'todos') + '">Tudo <span class="n">' + pend.length + '</span></button>'
     + MOTIVOS.map(function (m) {
-        var n = fila.filter(function (f) { return f.tipo === m[0]; }).length;
+        var n = pend.filter(function (f) { return f.tipo === m[0]; }).length;
         if (!n) return '';
         return '<button class="ficha" type="button" data-f="' + m[0] + '" aria-pressed="'
           + (estado.tipo === m[0]) + '"><i style="background:' + m[2] + '"></i>'
           + m[1] + ' <span class="n">' + n + '</span></button>';
-      }).join('');
+      }).join('')
+    + (emdia.length ? '<button class="ficha feito" type="button" data-f="emdia" aria-pressed="'
+        + (estado.tipo === 'emdia') + '"><i style="background:var(--bom)"></i>Contato em dia '
+        + '<span class="n">' + emdia.length + '</span></button>' : '');
 
-  var vis = fila.filter(function (f) { return estado.tipo === 'todos' || f.tipo === estado.tipo; });
-  // Pendentes e feitos são duas listas, não uma lista com linhas apagadas no
-  // meio: o que foi feito hoje sai da ordem de prioridade e vai para o fim,
-  // debaixo de um marcador próprio.
-  var pend = vis.filter(function (f) { return !f.contato_hoje; });
-  var feitos = vis.filter(function (f) { return f.contato_hoje; });
-  var mostra = pend.slice(0, estado.limite);
-  var html = mostra.length ? mostra.map(linhaFila).join('')
-    : '<p class="vazio">Nada pendente nesta categoria.'
-      + (feitos.length ? '<br>Tudo que aparecia aqui já recebeu contato hoje.'
-                       : '<br>Se a fila inteira esvaziar, a rotina está em dia.') + '</p>';
-  if (feitos.length) {
-    html += '<div class="divisor"><span>✓ Contato feito hoje</span>'
-      + '<span class="n">' + feitos.length + '</span></div>'
-      + feitos.map(linhaFila).join('');
+  var vis;
+  if (estado.tipo === 'emdia') vis = emdia;
+  else vis = pend.filter(function (f) { return estado.tipo === 'todos' || f.tipo === estado.tipo; });
+
+  var mostra = vis.slice(0, estado.limite);
+  $('h-fila').innerHTML = mostra.length ? mostra.map(linhaFila).join('')
+    : '<p class="vazio">' + (estado.tipo === 'emdia'
+        ? 'Ninguém com o contato em dia ainda.'
+        : 'Nada pendente nesta categoria.'
+          + (emdia.length ? '<br>Veja em <b>Contato em dia</b> quem já foi atendido.'
+                          : '<br>Se a fila inteira esvaziar, a rotina está em dia.')) + '</p>';
+  $('h-mais').hidden = vis.length <= estado.limite;
+  $('h-mais').textContent = 'Mostrar mais ' + Math.min(25, vis.length - estado.limite)
+    + ' de ' + (vis.length - estado.limite) + ' restantes';
+
+  if (estado.tipo === 'emdia') {
+    $('h-nota').innerHTML = 'Aqui está quem <b>não precisa de contato agora</b>: '
+      + 'quem já foi atendido dentro do prazo, quem você acabou de marcar como feito, '
+      + 'e quem está fora da rotina por decisão sua ou por ser ocasional. '
+      + 'A etiqueta de cada linha diz em quantos dias ele volta para a fila. '
+      + 'Nenhum deles conta no número lá em cima, que é só o trabalho que falta.';
+    return;
   }
-  $('h-fila').innerHTML = html;
-  $('h-mais').hidden = pend.length <= estado.limite;
-  $('h-mais').textContent = 'Mostrar mais ' + Math.min(25, pend.length - estado.limite)
-    + ' de ' + (pend.length - estado.limite) + ' pendentes';
-
   var nunca = R.sem_contato || 0;
   $('h-nota').innerHTML = '<b>A rotina manda na ordem, o dinheiro desempata.</b> '
     + (nunca ? 'Há ' + nunca + ' cliente(s) sem nenhum contato registrado; enquanto estiverem empatados '
         + 'em "nunca contactado", é o dinheiro em jogo que define a ordem. ' : '')
-    + 'Quem for contactado sai da fila e volta sozinho no fim do prazo. '
+    + 'Quem for contactado sai daqui na hora e reaparece em <b>Contato em dia</b> até vencer o prazo. '
     + 'O valor ao lado é sempre uma quantia real: quem <b>parou</b> vale o que comprava nesta altura do ano; '
     + 'quem está <b>caindo</b> ou <b>crescendo</b> vale a diferença já acumulada no ano; '
     + 'quem é <b>novo</b> vale o que já trouxe; quem entra só por <b>rotina</b> não tem nada em jogo além da visita.'
@@ -228,7 +243,7 @@ function linhaFila(f) {
       + '<span class="selo s-classe">Classe ' + f.classe + '</span></span>'
       + '<span class="frase">' + esc(f.texto) + '</span>'
       + '<span class="marca' + (f.contato_urgente ? '' : ' ok') + '">'
-        + (f.contato_hoje ? '✓ Contato feito hoje. Volta em ' + f.cadencia + ' dias.'
+        + (f.contato_hoje ? '✓ Contato feito hoje. Volta para a fila em ' + f.cadencia + ' dias.'
             : (f.contato_urgente ? '⏱ ' : '✓ ') + esc(f.contato_rotulo))
         + (f.marcas && f.marcas.length ? ' · ' + esc(f.marcas.join(' · ')) : '') + '</span>'
       + (f.manual ? '<span class="marca obs">✎ classificado por você. O sistema diria: '
@@ -343,14 +358,14 @@ function pintarRegistros() {
         + (c.ocasional ? ' <span class="selo s-rotina">ocasional</span>' : '') + '</td>'
       // Cidade e estado se editam aqui mesmo. Sao 161 para preencher a mao, e
       // abrir e fechar a ficha de cada um seria tres cliques por cliente.
-      + '<td class="edit">'
+      + '<td class="edit"><div class="par2">'
         + '<input class="cid" data-cid="' + esc(c.id) + '" value="' + esc(c.cidade) + '"'
         + ' placeholder="cidade" aria-label="Cidade de ' + esc(c.nome) + '">'
         + '<select class="uf" data-uf="' + esc(c.id) + '" aria-label="Estado de ' + esc(c.nome) + '">'
         + '<option value="">UF</option>'
         + UFS.map(function (u) {
             return '<option' + (c.uf_base === u ? ' selected' : '') + '>' + u + '</option>'; }).join('')
-        + '</select></td>'
+        + '</select></div></td>'
       + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(c.atuacao_rotulo || '—') + '</td>'
       + '<td><span class="selo s-' + d[1] + '">' + d[0] + '</span>'
         + (c.classe_manual ? ' <span class="selo s-novo">✎</span>' : '') + '</td>'
@@ -688,17 +703,29 @@ function fichaLead(id) {
   + '<aside class="gaveta" role="dialog" aria-modal="true" aria-label="Lead ' + esc(L.nome) + '">'
   + '<div class="gtopo"><div style="min-width:0">'
     + '<p class="olho" style="margin-bottom:3px">Lead'
-      + (L.ja_cliente ? ' · JÁ É CLIENTE DA CASA' : '') + '</p>'
+      + (L.revenda ? ' · JÁ REVENDE PIROMAX' : '') + '</p>'
     + '<h2 style="word-break:break-word">' + esc(L.nome) + '</h2>'
     + '<p style="margin-top:4px;color:var(--texto2);font-size:.79rem">'
       + esc([L.cidade, L.uf].filter(Boolean).join(' / ') || 'sem cidade') + '</p>'
     + '</div><button class="x" id="fx" type="button" aria-label="Fechar ficha">✕</button></div>'
   + '<div class="gcorpo">'
     + '<div class="url">' + location.origin + '/admin/carteira#/lead/' + esc(id) + '</div>'
-    + (L.ja_cliente ? '<div class="cartao" style="border-color:#f0dcae;background:var(--atencao-fundo)">'
-        + '<h3>Este nome já está na carteira</h3><p class="nota" style="margin-top:5px">'
-        + 'Ele já compra da Piromax (' + moeda(L.cliente_receita) + ' no histórico). '
-        + 'Prospectar aqui é ligar para quem já é cliente. Marque como ganho ou remova da lista.</p></div>' : '')
+    + '<div class="cartao"' + (L.revenda ? ' style="border-color:#f0dcae"' : '') + '>'
+      + '<h3>Já revende Piromax?</h3>'
+      + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Marque quando ele já vende produto '
+      + 'Piromax comprado de um cliente seu. A conversa passa a ser outra: ele conhece o produto, '
+      + 'e puxar para venda direta mexe com o seu próprio distribuidor.</p>'
+      + '<label style="display:flex;gap:8px;align-items:center;font-size:.85rem;cursor:pointer">'
+      + '<input type="checkbox" id="fl-revenda"' + (L.revenda ? ' checked' : '')
+      + ' style="width:16px;height:16px;accent-color:var(--roxo)">'
+      + 'Compra Piromax por revenda</label>'
+      + '<div class="campo" style="margin-top:9px"><label for="fl-revde">De qual cliente seu</label>'
+      + '<input id="fl-revde" list="fl-clientes" value="' + esc(L.revenda_de || '') + '" '
+      + 'placeholder="nome do cliente que abastece ele">'
+      + '<datalist id="fl-clientes">'
+      + (D && D.clientes ? D.clientes.map(function (c) {
+          return '<option value="' + esc(c.nome) + '">'; }).join('') : '')
+      + '</datalist></div></div>'
     + '<div class="campo"><label for="fl-etapa">Etapa</label><select id="fl-etapa">'
       + ETAPAS.map(function (e) {
           return '<option value="' + e[0] + '"' + (L.etapa === e[0] ? ' selected' : '') + '>' + e[1] + '</option>';
@@ -711,6 +738,15 @@ function fichaLead(id) {
         + UFS.map(function (u) { return '<option' + (L.uf === u ? ' selected' : '') + '>' + u + '</option>'; }).join('')
         + '</select></div>'
     + '</div>'
+    + '<div class="campo"><label for="fl-insta">Instagram ou site</label>'
+      + '<input id="fl-insta" value="' + esc(L.instagram || '') + '" placeholder="cole o link do perfil">'
+      + (L.instagram ? '<p class="nota" style="margin-top:3px"><a href="' + esc(L.instagram)
+          + '" target="_blank" rel="noopener noreferrer">abrir ' + esc(perfil(L.instagram))
+          + '</a></p>' : '') + '</div>'
+    + '<div class="campo"><label for="fl-seg">Tipo de negócio</label>'
+      + '<input id="fl-seg" value="' + esc(L.segmento || '') + '" list="fl-segs">'
+      + '<datalist id="fl-segs">' + ((PROSPEC && PROSPEC.por_segmento) || []).map(function (q) {
+          return '<option value="' + esc(q[0]) + '">'; }).join('') + '</datalist></div>'
     + '<div class="campo"><label for="fl-prox">Próximo passo</label>'
       + '<input id="fl-prox" value="' + esc(L.proximo) + '" placeholder="Ex.: mandar tabela de preço"></div>'
     + '<div class="campo"><label for="fl-quando">Para quando</label>'
@@ -756,7 +792,14 @@ function abrirNovoLead() {
         + ETAPAS.map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
         + '</select></div>'
     + '</div>'
-    + campo('nl-insta', 'Instagram ou site')
+    + campo('nl-insta', 'Instagram ou site', 'placeholder="cole o link do perfil"')
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:.85rem;cursor:pointer">'
+      + '<input type="checkbox" id="nl-revenda" style="width:16px;height:16px;accent-color:var(--roxo)">'
+      + 'Já revende Piromax comprando de um cliente meu</label>'
+    + '<div class="campo"><label for="nl-revde">De qual cliente seu</label>'
+      + '<input id="nl-revde" list="nl-clientes" placeholder="opcional">'
+      + '<datalist id="nl-clientes">' + (D && D.clientes ? D.clientes.map(function (c) {
+          return '<option value="' + esc(c.nome) + '">'; }).join('') : '') + '</datalist></div>'
     + campo('nl-prox', 'Próximo passo', 'placeholder="Ex.: mandar tabela de preço"')
     + '<div class="campo"><label for="nl-quando">Para quando</label>'
       + '<input id="nl-quando" type="date"></div>'
@@ -781,6 +824,7 @@ function criarLead(botao) {
       contato: $('nl-contato').value, telefone: $('nl-tel').value,
       segmento: $('nl-seg').value, etapa: $('nl-etapa').value,
       instagram: $('nl-insta').value, proximo: $('nl-prox').value,
+      revenda: $('nl-revenda').checked, revenda_de: $('nl-revde').value,
       proximo_em: $('nl-quando').value || null, obs: $('nl-obs').value
     })
   }).then(function (r) { return r.json(); }).then(function (j) {
@@ -831,7 +875,9 @@ $('tela').addEventListener('click', function (e) {
     gravar('/admin/carteira/lead', {
       id: id, etapa: $('fl-etapa').value, contato: $('fl-contato').value,
       telefone: $('fl-tel').value, cidade: $('fl-cidade').value, uf: $('fl-uf').value,
-      proximo: $('fl-prox').value, proximo_em: $('fl-quando').value, motivo: $('fl-motivo').value
+      proximo: $('fl-prox').value, proximo_em: $('fl-quando').value, motivo: $('fl-motivo').value,
+      instagram: $('fl-insta').value, segmento: $('fl-seg').value,
+      revenda: $('fl-revenda').checked, revenda_de: $('fl-revde').value
     }, 'Lead salvo.');
   } else if (a === 'lead-remover') {
     fetch('/admin/carteira/lead/' + id, { method: 'DELETE' })
@@ -1336,6 +1382,7 @@ function prVisiveis() {
         && (!estado.prUf || x.uf === estado.prUf)
         && (!estado.prCidade || (x.cidade || '') === estado.prCidade)
         && (!estado.prEtapa || x.etapa === estado.prEtapa)
+        && (!estado.prRevenda || (estado.prRevenda === 'sim' ? x.revenda : !x.revenda))
         && (!q || x.nome.toLowerCase().indexOf(q) >= 0
              || (x.cidade || '').toLowerCase().indexOf(q) >= 0);
   });
@@ -1343,7 +1390,7 @@ function prVisiveis() {
 
 function pintarProspeccao() {
   var P = PROSPEC || { leads: [], etapas: [], total: 0, abertos: 0, ganhos: 0, perdidos: 0,
-                       ja_clientes: 0, por_segmento: [], por_regiao: [], cidades: [],
+                       revendas: 0, por_segmento: [], por_regiao: [], cidades: [],
                        acompanhar: { vencidos: [], hoje: [], proximos: [], sem_data: [], total: 0 } };
   var vis = prVisiveis();
   var A = P.acompanhar || { vencidos: [], hoje: [], proximos: [], sem_data: [], total: 0 };
@@ -1405,6 +1452,13 @@ function pintarProspeccao() {
       + ETAPAS.map(function (e) {
           return '<option value="' + e[0] + '"' + (estado.prEtapa === e[0] ? ' selected' : '') + '>'
             + e[1] + '</option>'; }).join('') + '</select>'
+    + '<label for="pr-rev" style="position:absolute;left:-9999px">Revenda</label>'
+    + '<select id="pr-rev" class="filtro">'
+      + '<option value="">Revenda: todos</option>'
+      + '<option value="sim"' + (estado.prRevenda === 'sim' ? ' selected' : '') + '>'
+        + 'Só quem já revende (' + (P.revendas || 0) + ')</option>'
+      + '<option value="nao"' + (estado.prRevenda === 'nao' ? ' selected' : '') + '>'
+        + 'Só quem não revende</option></select>'
     + '<span class="mono" style="color:var(--texto3);font-size:.76rem">' + vis.length + ' de ' + P.total + '</span>'
     + '<span class="acoes" style="margin-left:auto">'
       + '<button type="button" id="pr-modo">' + (estado.prView === 'funil' ? 'Ver em lista' : 'Ver o funil') + '</button>'
@@ -1425,22 +1479,33 @@ function pintarProspeccao() {
   }).join('');
 
   /* ── lista: a mesma coisa em tabela, para varrer de uma vez ── */
-  var lista = '<div class="tw"><table id="pr-tab"><thead><tr>'
+  var lista = loteLeads(vis) + '<div class="tw"><table id="pr-tab"><thead><tr>'
+    + '<th class="marc"><input type="checkbox" id="pr-todos" aria-label="Marcar todos"></th>'
     + '<th>Empresa</th><th>Cidade</th><th>UF</th><th>Tipo</th><th>Etapa</th>'
-    + '<th>Telefone</th><th>Próximo passo</th></tr></thead><tbody>'
+    + '<th>Telefone</th><th>Instagram</th><th>Revenda</th><th>Próximo passo</th></tr></thead><tbody>'
     + (vis.length ? vis.map(function (x) {
         return '<tr data-l="' + esc(x.id) + '" tabindex="0">'
-          + '<td class="nm">' + esc(x.nome)
-            + (x.ja_cliente ? ' <span class="selo s-ritmo">já é cliente</span>' : '') + '</td>'
+          + '<td class="marc"><input type="checkbox" data-pm="' + esc(x.id) + '"'
+            + (estado.prMarcados[x.id] ? ' checked' : '')
+            + ' aria-label="Marcar ' + esc(x.nome) + '"></td>'
+          + '<td class="nm">' + esc(x.nome) + '</td>'
           + '<td>' + esc(x.cidade || '—') + '</td><td>' + esc(x.uf || '—') + '</td>'
           + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(x.segmento || '—') + '</td>'
           + '<td><span class="selo s-classe">' + esc(rotuloEtapa(x.etapa)) + '</span></td>'
           + '<td class="mono" style="font-size:.78rem">' + esc(x.telefone || '—') + '</td>'
+          + '<td>' + (x.instagram
+              ? '<a href="' + esc(x.instagram) + '" target="_blank" rel="noopener noreferrer" '
+                + 'style="font-size:.78rem">' + esc(perfil(x.instagram)) + '</a>'
+              : '<span style="color:var(--texto3)">—</span>') + '</td>'
+          + '<td>' + (x.revenda
+              ? '<span class="selo s-ritmo">sim</span>'
+                + (x.revenda_de ? ' <small style="color:var(--texto2)">' + esc(x.revenda_de) + '</small>' : '')
+              : '<span style="color:var(--texto3)">—</span>') + '</td>'
           + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(x.proximo || '—')
             + (x.proximo_em ? ' <span class="mono" style="color:var(--texto3)">(' + dia(x.proximo_em) + ')</span>' : '')
             + '</td></tr>';
       }).join('')
-      : '<tr><td colspan="7"><p class="vazio">Nenhum lead com esses filtros.</p></td></tr>')
+      : '<tr><td colspan="10"><p class="vazio">Nenhum lead com esses filtros.</p></td></tr>')
     + '</tbody></table></div>';
 
   var barrinhas = function (lista2, titulo, campo) {
@@ -1469,8 +1534,8 @@ function pintarProspeccao() {
       + '<div class="sub">' + P.total + ' na lista · ' + P.ganhos + ' ganhos · ' + P.perdidos + ' perdidos'
       + (P.conversao !== null && P.conversao !== undefined
           ? '<br>conversão de ' + P.conversao.toFixed(0) + '% sobre o que já foi decidido' : '')
-      + (P.ja_clientes ? '<br><b style="color:var(--atencao)">' + P.ja_clientes
-          + ' já compram da Piromax</b> e estão marcados na lista' : '') + '</div>'
+      + (P.revendas ? '<br><b style="color:var(--atencao)">' + P.revendas
+          + ' já revendem Piromax</b> comprando de um cliente seu' : '') + '</div>'
     + '</div>'
     + acompanhar
     + barra
@@ -1479,6 +1544,14 @@ function pintarProspeccao() {
       + barrinhas(P.por_segmento, 'Por tipo de negócio', 'seg')
       + barrinhas(P.por_regiao, 'Por região', 'reg')
     + '</div>'
+    + (P.revendas ? '<div class="cartao" style="margin-top:12px"><h3>Quem já revende Piromax</h3>'
+        + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Leads que você marcou como abastecidos '
+        + 'por um cliente seu. Não são prospecção fria: eles já vendem o produto, só não compram direto. '
+        + 'Vale pensar duas vezes antes de puxar o cliente do seu próprio cliente.</p>'
+        + (P.por_fornecedor || []).map(function (p) {
+            return '<div class="par"><span class="n">' + esc(p[0]) + '</span>'
+              + '<small style="font-weight:700">' + p[1] + ' lead(s)</small></div>';
+          }).join('') + '</div>' : '')
     + '<div class="cartao" style="margin-top:12px"><h3>Carregar lista de leads</h3>'
       + '<p class="nota" style="margin-top:4px;margin-bottom:11px">Empresa, tipo de lead, atuação, estado, cidade, '
       + 'telefone e o que mais tiver na planilha. O importador acha as colunas pelo nome do cabeçalho, '
@@ -1487,9 +1560,32 @@ function pintarProspeccao() {
       + '<div class="solto" id="solto-leads"><b>Clique ou arraste a lista aqui</b>CSV com cabeçalho</div>'
       + '<div id="pv-leads"></div></div>';
 }
+/* Marcar revenda um a um em 248 leads seria castigo. A barra aparece assim que
+   o primeiro é marcado na lista, igual à de Registros. */
+function loteLeads(vis) {
+  var ids = Object.keys(estado.prMarcados).filter(function (k) { return estado.prMarcados[k]; });
+  if (!ids.length) return '';
+  var nomes = (D && D.clientes ? D.clientes : []).map(function (c) {
+    return '<option value="' + esc(c.nome) + '">'; }).join('');
+  return '<div class="cartao" style="padding:12px 14px;margin-bottom:11px">'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
+    + '<b style="font-size:.85rem;color:var(--roxo-forte)">' + ids.length + ' marcado(s)</b>'
+    + '<input id="lp-de" class="filtro" list="lp-clientes" placeholder="Revenda de qual cliente seu…" '
+      + 'style="max-width:250px"><datalist id="lp-clientes">' + nomes + '</datalist>'
+    + '<span class="acoes">'
+      + '<button type="button" class="pri" id="lp-rev">Marcar como revenda</button>'
+      + '<button type="button" id="lp-norev">Tirar a marca</button>'
+      + '<select id="lp-etapa" class="filtro"><option value="">Mover para…</option>'
+        + ETAPAS.map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
+        + '</select>'
+      + '<button type="button" id="lp-nada">Limpar seleção</button></span></div>'
+    + '<p class="nota" style="margin-top:7px">O nome do fornecedor é opcional, mas é o que transforma '
+      + 'a marca em informação: dá para ver quantos leads cada cliente seu já abastece.</p></div>';
+}
+
 function prFiltrando() {
   return !!(prFiltro.seg || prFiltro.reg || estado.prUf || estado.prCidade
-            || estado.prEtapa || estado.prBusca);
+            || estado.prEtapa || estado.prBusca || estado.prRevenda);
 }
 function rotuloEtapa(e) {
   var x = ETAPAS.filter(function (y) { return y[0] === e; })[0];
@@ -1498,13 +1594,43 @@ function rotuloEtapa(e) {
 function cartaoLead(x) {
   return '<button class="lead" type="button" data-l="' + esc(x.id) + '">'
     + '<b>' + esc(x.nome)
-    + (x.ja_cliente ? ' <span class="selo s-ritmo">já é cliente</span>' : '') + '</b>'
+    + (x.revenda ? ' <span class="selo s-ritmo">revenda</span>' : '') + '</b>'
     + '<small>' + esc([x.cidade, x.uf].filter(Boolean).join(' / ') || 'sem cidade')
     + (x.segmento ? ' · ' + esc(x.segmento) : '')
-    + (x.proximo ? ' · ' + esc(x.proximo) : '') + '</small></button>';
+    + (x.proximo ? ' · ' + esc(x.proximo) : '') + '</small>'
+    + (x.instagram ? '<small class="insta">' + esc(perfil(x.instagram)) + '</small>' : '')
+    + '</button>';
+}
+
+/* A planilha traz a URL inteira com rastreador. Na tela o que importa e o
+   arroba; a URL completa fica no link da ficha. */
+function perfil(url) {
+  var u = String(url || '');
+  var m = u.match(/instagram\.com\/([^/?#]+)/i);
+  if (m) return '@' + m[1];
+  m = u.match(/facebook\.com\/(?:share\/)?([^/?#]+)/i);
+  if (m) return 'facebook';
+  return u.replace(/^https?:\/\//, '').slice(0, 40);
 }
 
 $('pr-corpo').addEventListener('click', function (e) {
+  var cb = e.target.closest('input[data-pm]');
+  if (cb) { estado.prMarcados[cb.dataset.pm] = cb.checked; pintarProspeccao(); e.stopPropagation(); return; }
+  if (e.target.id === 'pr-todos') {
+    prVisiveis().forEach(function (x) { estado.prMarcados[x.id] = e.target.checked; });
+    pintarProspeccao();
+    return;
+  }
+  if (e.target.id === 'lp-nada') { estado.prMarcados = {}; pintarProspeccao(); return; }
+  if (e.target.id === 'lp-rev' || e.target.id === 'lp-norev') {
+    var marcados = Object.keys(estado.prMarcados).filter(function (k) { return estado.prMarcados[k]; });
+    var sim = e.target.id === 'lp-rev';
+    gravar('/admin/carteira/lead/revenda-lote',
+      { ids: marcados, revenda: sim, revenda_de: sim && $('lp-de') ? $('lp-de').value.trim() : '' },
+      sim ? 'Marcados como revenda.' : 'Marca removida.')
+      .then(function () { estado.prMarcados = {}; pintarProspeccao(); });
+    return;
+  }
   if (e.target.id === 'pr-novo') { abrirNovoLead(); return; }
   if (e.target.id === 'pr-modo') {
     estado.prView = estado.prView === 'funil' ? 'lista' : 'funil';
@@ -1513,10 +1639,11 @@ $('pr-corpo').addEventListener('click', function (e) {
   }
   if (e.target.id === 'pr-limpa') {
     prFiltro = { seg: '', reg: '' };
-    estado.prUf = estado.prCidade = estado.prEtapa = estado.prBusca = '';
+    estado.prUf = estado.prCidade = estado.prEtapa = estado.prBusca = estado.prRevenda = '';
     pintarProspeccao();
     return;
   }
+  if (e.target.closest('a')) return;           /* link do Instagram abre o link */
   var tr = e.target.closest('tr[data-l]');
   if (tr) { abrirFicha(tr.dataset.l, 'lead'); return; }
   var b = e.target.closest('button[data-l]');
@@ -1534,6 +1661,12 @@ $('pr-corpo').addEventListener('change', function (e) {
   if (e.target.id === 'pr-uf') { estado.prUf = e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-cidade') { estado.prCidade = e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-etapa') { estado.prEtapa = e.target.value; pintarProspeccao(); }
+  else if (e.target.id === 'pr-rev') { estado.prRevenda = e.target.value; pintarProspeccao(); }
+  else if (e.target.id === 'lp-etapa' && e.target.value) {
+    var marcados = Object.keys(estado.prMarcados).filter(function (k) { return estado.prMarcados[k]; });
+    gravar('/admin/carteira/lead/etapa-lote', { ids: marcados, etapa: e.target.value }, 'Etapa alterada.')
+      .then(function () { estado.prMarcados = {}; pintarProspeccao(); });
+  }
 });
 $('pr-corpo').addEventListener('input', function (e) {
   if (e.target.id !== 'pr-busca') return;
@@ -1659,8 +1792,6 @@ ligarUpload($('arq-leads'), 'pv-leads', '/admin/carteira/leads/previa', '/admin/
       + '<p class="nota" style="margin-top:4px">O arquivo tem <b>' + j.no_arquivo + '</b> leads. '
       + '<b>' + j.novos + '</b> são novos'
       + (j.repetidos ? ', ' + j.repetidos + ' já estão na lista' : '') + '.'
-      + (j.qtd_ja_clientes ? ' <b style="color:var(--atencao)">' + j.qtd_ja_clientes
-          + ' já compram da Piromax</b> e vão entrar marcados: ' + esc((j.ja_clientes || []).join(', ')) + '.' : '')
       + (j.por_etapa && j.por_etapa.length ? '<br>Entram assim: ' + j.por_etapa.map(function (p) {
           var e = ETAPAS.filter(function (x) { return x[0] === p[0]; })[0];
           return p[1] + ' em "' + (e ? e[1] : p[0]) + '"';
