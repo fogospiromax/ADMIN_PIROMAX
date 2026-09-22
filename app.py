@@ -988,6 +988,7 @@ def api_tasks():
 # Carteira de clientes — análise de vendas e CRM
 # ══════════════════════════════════════════════════════════════════════════════
 import json as _json
+from datetime import date as _date
 import carteira
 
 
@@ -1017,6 +1018,8 @@ def init_carteira_db():
             motivo       TEXT DEFAULT '',
             atuacao      TEXT DEFAULT '',
             obs          TEXT DEFAULT '',
+            dispensa     BOOLEAN DEFAULT FALSE,
+            cadencia     INTEGER,
             atualizado_em TEXT
         )''')
     cur.execute('''
@@ -1052,14 +1055,19 @@ def init_carteira_db():
             proximo     TEXT DEFAULT '',
             proximo_em  DATE,
             cliente_id  TEXT DEFAULT '',
+            segmento    TEXT DEFAULT '',
+            instagram   TEXT DEFAULT '',
             origem_arq  TEXT DEFAULT '',
             criado_em   TEXT,
             atualizado_em TEXT
         )''')
     cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_lead_etapa ON carteira_lead(etapa)')
+    for coluna, tipo in (('segmento', "TEXT DEFAULT ''"), ('instagram', "TEXT DEFAULT ''")):
+        cur.execute('ALTER TABLE carteira_lead ADD COLUMN IF NOT EXISTS %s %s' % (coluna, tipo))
     cur.execute('CREATE TABLE IF NOT EXISTS carteira_config (chave TEXT PRIMARY KEY, valor TEXT)')
     # migracao de bancos que nasceram antes destes campos
-    for coluna, tipo in (('atuacao', "TEXT DEFAULT ''"), ('motivo', "TEXT DEFAULT ''")):
+    for coluna, tipo in (('atuacao', "TEXT DEFAULT ''"), ('motivo', "TEXT DEFAULT ''"),
+                         ('dispensa', 'BOOLEAN DEFAULT FALSE'), ('cadencia', 'INTEGER')):
         cur.execute('ALTER TABLE carteira_ficha ADD COLUMN IF NOT EXISTS %s %s' % (coluna, tipo))
     cur.execute("ALTER TABLE carteira_ficha DROP COLUMN IF EXISTS motivo_tipo")
     # a mesma nota nunca entra duas vezes
@@ -1117,6 +1125,10 @@ def _carteira_dados():
     inter = [{'id': r['id'], 'cliente': r['cliente_id'], 'data': r['data'].isoformat(),
               'tipo': r['tipo'] or '', 'resumo': r['resumo'] or ''} for r in cur.fetchall()]
 
+    # ultimo contato de cada cliente: e o que move a rotina de 15/30 dias
+    cur.execute('SELECT cliente_id, MAX(data) AS ultimo FROM carteira_interacao GROUP BY cliente_id')
+    contatos = {r['cliente_id']: r['ultimo'] for r in cur.fetchall() if r['ultimo']}
+
     cur.execute('SELECT * FROM carteira_tarefa')
     tarefas = [{'id': r['id'], 'cliente': r['cliente_id'], 'titulo': r['titulo'],
                 'prazo': r['prazo'].isoformat() if r['prazo'] else '',
@@ -1132,7 +1144,8 @@ def _carteira_dados():
     cur.close()
     conn.close()
 
-    dados = carteira.calcular(linhas, aliases, fichas)
+    hoje = _date.fromisoformat(today_sp())
+    dados = carteira.calcular(linhas, aliases, fichas, contatos, hoje)
     prospec = carteira.analisar_leads(leads, dados)
     return dados, fichas, inter, tarefas, aliases, prospec
 
@@ -1155,6 +1168,28 @@ def admin_carteira_view():
         regioes_json=_json.dumps([[k, v[0], v[1]] for k, v in carteira.REGIOES.items()], ensure_ascii=False),
         hoje=today_sp(),
     )
+
+
+@app.route('/admin/carteira/dados')
+@login_required
+def admin_carteira_dados():
+    """O mesmo conteudo que o template embute, em JSON.
+
+    Serve para a pagina se atualizar sozinha depois de uma gravacao, em vez de
+    recarregar. Recarregar custava a posicao da rolagem, a ficha aberta e a aba
+    em que a pessoa estava, tres vezes a cada cliente editado.
+    """
+    dados, fichas, inter, tarefas, aliases, prospec = _carteira_dados()
+    return jsonify({
+        'success': True,
+        'dados': dados,
+        'fichas': fichas,
+        'inter': inter,
+        'tarefas': tarefas,
+        'aliases': aliases,
+        'prospec': prospec,
+        'candidatos': carteira.candidatos_unificacao(dados) if dados else [],
+    })
 
 
 def _ler_upload(arq):
@@ -1260,19 +1295,26 @@ def admin_carteira_ficha():
     at = ','.join(sorted({str(x).strip().upper() for x in at
                           if str(x).strip().upper() in carteira.REGIOES
                           or str(x).strip().upper() in carteira.REGIAO_DA_UF}))
+    try:
+        cad = int(d.get('cadencia') or 0)
+    except (TypeError, ValueError):
+        cad = 0
+    cad = cad if 1 <= cad <= 365 else None
     cur.execute('''
         INSERT INTO carteira_ficha
-            (cliente_id, cliente_nome, cidade, estado, situacao, motivo, atuacao, obs, atualizado_em)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            (cliente_id, cliente_nome, cidade, estado, situacao, motivo, atuacao, obs,
+             dispensa, cadencia, atualizado_em)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (cliente_id) DO UPDATE SET
             cliente_nome=EXCLUDED.cliente_nome, cidade=EXCLUDED.cidade,
             estado=EXCLUDED.estado, situacao=EXCLUDED.situacao,
             motivo=EXCLUDED.motivo, atuacao=EXCLUDED.atuacao,
-            obs=EXCLUDED.obs, atualizado_em=EXCLUDED.atualizado_em
+            obs=EXCLUDED.obs, dispensa=EXCLUDED.dispensa, cadencia=EXCLUDED.cadencia,
+            atualizado_em=EXCLUDED.atualizado_em
     ''', (cid, (d.get('cliente_nome') or '')[:200], (d.get('cidade') or '')[:120],
           (d.get('estado') or '')[:2].upper(), situacao,
           (d.get('motivo') or '')[:1000], at,
-          (d.get('obs') or '')[:2000], now_sp_str()))
+          (d.get('obs') or '')[:2000], bool(d.get('dispensa')), cad, now_sp_str()))
     conn.commit()
     cur.close()
     conn.close()
@@ -1361,6 +1403,66 @@ def admin_carteira_interacao_add():
     cur.close()
     conn.close()
     return jsonify({'success': True, 'id': novo})
+
+
+@app.route('/admin/carteira/contato', methods=['POST'])
+@login_required
+def admin_carteira_contato():
+    """Um clique na fila: registra o contato de hoje e zera o relogio da rotina.
+
+    E uma interacao normal na mesma tabela, entao o historico do cliente ganha
+    a linha e a rotina recalcula sozinha no proximo carregamento.
+    """
+    d = request.get_json(silent=True) or {}
+    ids = [str(x).strip() for x in (d.get('ids') or []) if str(x).strip()]
+    if not ids and (d.get('cliente_id') or '').strip():
+        ids = [d['cliente_id'].strip()]
+    if not ids:
+        return jsonify({'success': False, 'erro': 'nenhum cliente informado'}), 400
+    resumo = ((d.get('resumo') or '').strip() or 'Contato de rotina.')[:1000]
+    tipo = (d.get('tipo') or 'rotina')[:40]
+    quando = d.get('data') or today_sp()
+    conn = get_db()
+    cur = conn.cursor()
+    for cid in ids[:500]:
+        cur.execute('INSERT INTO carteira_interacao (id, cliente_id, data, tipo, resumo, criado_em) '
+                    'VALUES (%s,%s,%s,%s,%s,%s)',
+                    (str(uuid.uuid4()), cid, quando, tipo, resumo, now_sp_str()))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'gravados': len(ids[:500]), 'data': quando})
+
+
+@app.route('/admin/carteira/rotina-lote', methods=['POST'])
+@login_required
+def admin_carteira_rotina_lote():
+    """Dispensar varios clientes da rotina, ou dar cadencia propria a eles."""
+    d = request.get_json(silent=True) or {}
+    ids = [str(x).strip() for x in (d.get('ids') or []) if str(x).strip()]
+    if not ids:
+        return jsonify({'success': False, 'erro': 'nenhum cliente selecionado'}), 400
+    nomes = d.get('nomes') or {}
+    dispensa = bool(d.get('dispensa'))
+    try:
+        cad = int(d.get('cadencia') or 0)
+    except (TypeError, ValueError):
+        cad = 0
+    cad = cad if 1 <= cad <= 365 else None
+    conn = get_db()
+    cur = conn.cursor()
+    for cid in ids[:500]:
+        cur.execute('''
+            INSERT INTO carteira_ficha (cliente_id, cliente_nome, dispensa, cadencia, atualizado_em)
+            VALUES (%s,%s,%s,%s,%s)
+            ON CONFLICT (cliente_id) DO UPDATE SET
+                dispensa=EXCLUDED.dispensa, cadencia=EXCLUDED.cadencia,
+                atualizado_em=EXCLUDED.atualizado_em
+        ''', (cid, (nomes.get(cid) or '')[:200], dispensa, cad, now_sp_str()))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'gravados': len(ids[:500])})
 
 
 @app.route('/admin/carteira/interacao/<item_id>', methods=['DELETE'])
@@ -1476,6 +1578,8 @@ def admin_leads_previa():
                     'sem_uf': sum(1 for _, L in novos if not L.get('uf')),
                     'sem_telefone': sum(1 for _, L in novos if not L.get('telefone')),
                     'amostra': [L for _, L in novos[:10]],
+                    'por_etapa': carteira._contar([L for _, L in novos],
+                                                  lambda L: L.get('etapa') or 'novo'),
                     'ignoradas': len(erros), 'detalhes': erros[:10]})
 
 
@@ -1496,12 +1600,16 @@ def admin_leads_upload():
     novos, repetidos = _leads_novos(cur, leads)
     agora = now_sp_str()
     if novos:
+        # A etapa vem do arquivo quando ele traz essa coluna. Chegar tudo como
+        # "novo" apagaria o trabalho de qualificacao ja feito na planilha.
         cur.executemany(
             'INSERT INTO carteira_lead (id, nome, cidade, uf, contato, telefone, email, '
-            'etapa, origem_arq, criado_em, atualizado_em) '
-            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            'etapa, segmento, instagram, obs, origem_arq, criado_em, atualizado_em) '
+            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
             [(lid, L['nome'], L.get('cidade', ''), L.get('uf', ''), L.get('contato', ''),
-              L.get('telefone', ''), L.get('email', ''), 'novo', nome_arq, agora, agora)
+              L.get('telefone', ''), L.get('email', ''), L.get('etapa') or 'novo',
+              L.get('segmento', ''), L.get('instagram', ''), L.get('obs', ''),
+              nome_arq, agora, agora)
              for lid, L in novos])
     conn.commit()
     cur.execute('SELECT COUNT(*) FROM carteira_lead')
@@ -1528,14 +1636,15 @@ def admin_lead_salvar():
     # So grava o que veio no corpo. Um UPDATE de todas as colunas com os campos
     # ausentes vazios apagaria cidade, telefone e contato a cada chamada
     # parcial, e o lead perderia dado sem ninguem pedir.
-    limites = {'cidade': 120, 'uf': 2, 'contato': 120, 'telefone': 40, 'email': 160,
-               'motivo': 1000, 'obs': 2000, 'proximo': 300}
+    limites = {'cidade': 120, 'uf': 60, 'contato': 120, 'telefone': 40, 'email': 160,
+               'motivo': 1000, 'obs': 2000, 'proximo': 300,
+               'segmento': 60, 'instagram': 300}
     campos, valores = [], []
     for k, lim in limites.items():
         if k in d:
             v = (d.get(k) or '')[:lim]
             campos.append(k + '=%s')
-            valores.append(v.upper() if k == 'uf' else v)
+            valores.append(carteira.normalizar_uf(v) if k == 'uf' else v)
     if 'etapa' in d:
         campos.append('etapa=%s')
         valores.append(etapa)

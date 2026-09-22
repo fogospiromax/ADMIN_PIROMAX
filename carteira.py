@@ -144,12 +144,17 @@ def ufs_cobertas(tokens):
 SITUACOES_ENCERRADAS = ('perdido',)
 
 
-def calcular(linhas, aliases=None, fichas=None):
+def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
     """linhas: [(date, nome, valor)]. aliases: {nome_antigo: nome_canonico}.
     fichas: {id_do_cliente: {'situacao': 'ativo'|'pausado'|'perdido',
-                             'motivo_tipo': str, 'motivo': str, ...}}"""
+                             'motivo': str, 'dispensa': bool, 'cadencia': int, ...}}
+    contatos: {id_do_cliente: date do ultimo contato registrado}.
+    hoje: data de referencia da rotina de contato. E o dia de hoje de verdade,
+          nao a data da ultima venda: um cliente fica sem contato mesmo nos
+          meses em que ninguem vende nada."""
     aliases = {k.strip().upper(): v.strip().upper() for k, v in (aliases or {}).items()}
     fichas = fichas or {}
+    contatos = contatos or {}
     if not linhas:
         return None
 
@@ -289,6 +294,13 @@ def calcular(linhas, aliases=None, fichas=None):
         C[n]['direcao'] = _direcao(C[n])
         C[n]['ritmo'], C[n]['ritmo_rel'] = _ritmo(C[n])
 
+    # ── rotina de contato ──
+    HOJE = hoje or REF
+    for n in nomes:
+        _rotina(C[n], fichas.get(C[n]['id'], {}), contatos.get(C[n]['id']), HOJE)
+
+    fila = _fila(nomes, C)
+
     # ── projecao ──
     prev = _projetar(nomes, mat, emp, C, faixa_meses, REF, encerrados)
     bt = _backtestar(nomes, mat, emp, C, faixa_meses, REF)
@@ -317,8 +329,232 @@ def calcular(linhas, aliases=None, fichas=None):
         'clientes': [_limpar(C[n], aliases) for n in ordem],
         'previsao': prev,
         'backtest': bt,
+        'fila': fila,
+        'anos': _anos(nomes, C, pedidos, REF),
+        'rotina': {
+            'hoje': HOJE.isoformat(),
+            'cadencia': dict(CADENCIA),
+            'vencidos': sum(1 for n in nomes if C[n]['contato_urgente']),
+            'em_dia': sum(1 for n in nomes
+                          if not C[n]['contato_urgente'] and not C[n]['dispensa_rotina']),
+            'dispensados': sum(1 for n in nomes if C[n]['dispensa_rotina']),
+            'sem_contato': sum(1 for n in nomes if C[n]['contato_ultimo'] is None),
+        },
     }
     return saida
+
+
+# ── rotina de contato ─────────────────────────────────────────────────────────
+
+# Cadencia por classe da curva ABC. A e B sao os clientes que sustentam o
+# faturamento e merecem quinzenal; C e cauda longa e a cada trinta dias basta.
+# Com 161 clientes, quinzenal para todos dava onze contatos por dia util.
+CADENCIA = {'A': 15, 'B': 15, 'C': 30}
+
+
+def _rotina(c, ficha, ultimo, hoje):
+    """Estado do contato de um cliente, medido contra a cadencia da classe dele.
+
+    'ultimo' e a data da ultima interacao registrada no banco, ou None para
+    quem nunca foi contactado. Quem nunca foi contactado tem atraso infinito de
+    proposito: e o topo da fila ate alguem falar com ele pela primeira vez."""
+    c['dispensa_rotina'] = bool(ficha.get('dispensa'))
+    try:
+        cad = int(ficha.get('cadencia') or 0)
+    except (TypeError, ValueError):
+        cad = 0
+    c['cadencia'] = cad if cad > 0 else CADENCIA.get(c['classe'], 30)
+    c['cadencia_propria'] = cad > 0
+    c['contato_ultimo'] = ultimo.isoformat() if ultimo else None
+
+    if c['dispensa_rotina']:
+        c.update(contato_dias=None, contato_atraso=-10 ** 9,
+                 contato_rotulo='Dispensado da rotina', contato_urgente=False)
+        return
+    if not ultimo:
+        c.update(contato_dias=None, contato_atraso=10 ** 6,
+                 contato_rotulo='Nunca contactado', contato_urgente=True)
+        return
+
+    dias = (hoje - ultimo).days
+    atraso = dias - c['cadencia']
+    if atraso > 0:
+        rot = 'Contato vencido há %d dia%s' % (atraso, '' if atraso == 1 else 's')
+    elif atraso == 0:
+        rot = 'Contato vence hoje'
+    else:
+        rot = 'Em dia, próximo em %d dia%s' % (-atraso, '' if atraso == -1 else 's')
+    c.update(contato_dias=dias, contato_atraso=atraso,
+             contato_rotulo=rot, contato_urgente=atraso >= 0)
+
+
+def _brl(v):
+    return ('%.0f' % v).replace(',', '').replace('.', ',')
+
+
+def _reais(v):
+    s = '%d' % round(v)
+    saida, i = '', 0
+    for ch in reversed(s):
+        if i and i % 3 == 0:
+            saida = '.' + saida
+        saida, i = ch + saida, i + 1
+    return saida
+
+
+def _br_data(d):
+    return '%02d/%02d/%d' % (d.day, d.month, d.year)
+
+
+def _fila(nomes, C):
+    """A fila unica de trabalho.
+
+    Regra: a rotina manda na ordem, o dinheiro desempata. Quem esta vencido ha
+    mais tempo vem primeiro; entre dois igualmente vencidos, ganha quem tem
+    mais dinheiro em jogo. O peso e sempre uma quantia real medida da propria
+    base, nunca uma nota inventada de prioridade.
+
+    Um cliente entra uma vez so, com o motivo mais forte. Quem nao tem alerta
+    comercial nenhum entra por rotina, com peso zero.
+    """
+    fila = []
+    for n in nomes:
+        c = C[n]
+        if c['encerrado']:
+            continue
+        m = _motivo(c)
+        if c['dispensa_rotina'] and not m:
+            continue
+        if not c['contato_urgente'] and not m:
+            continue
+        tipo, rotulo, peso, texto = m or (
+            'rotina', 'Rotina', 0.0,
+            'Sem alerta comercial. Entra pela rotina: %d compras, última em %s.'
+            % (c['compras'], _br_data(c['ultima'])))
+        marcas = []
+        if c['ritmo'] in ('atrasado', 'muito atrasado'):
+            marcas.append('%d dias sem comprar, costuma comprar a cada ~%d'
+                          % (c['recencia'], c['intervalo'] or 0))
+        fila.append({
+            'id': c['id'], 'nome': c['nome'], 'tipo': tipo, 'rotulo': rotulo,
+            'peso': round(peso, 2), 'texto': texto, 'marcas': marcas,
+            'classe': c['classe'], 'direcao': c['direcao'], 'uf': c['uf_base'],
+            'receita': c['receita'], 'motivo': c['motivo'],
+            'contato_rotulo': c['contato_rotulo'],
+            'contato_atraso': c['contato_atraso'],
+            'contato_urgente': c['contato_urgente'],
+            'cadencia': c['cadencia'],
+        })
+    fila.sort(key=lambda x: (-x['contato_atraso'], -x['peso'], -x['receita']))
+    return fila
+
+
+JANELA = 'nesta mesma altura do ano'
+
+
+def _motivo(c):
+    """O alerta comercial mais forte do cliente, ou None.
+
+    Cada tipo tem um peso que e dinheiro de verdade: o que ele deixou de
+    comprar, o que passou a comprar a mais, ou quanto vale um pedido dele.
+    Quando a variacao percentual passa de 90% para baixo ou 300% para cima ela
+    para de informar (base minuscula), e o texto troca o percentual pelos dois
+    valores absolutos.
+    """
+    v, p, atual = c['var_ytd_abs'], c['var_ytd_pct'], c['ytd_atual']
+    if c['direcao'] == 'parou' and c['ytd_base'] > 0:
+        return ('recuperar', 'Recuperar', c['ytd_base'],
+                'Parou. %s comprava R$ %s, e neste ano não comprou nada.'
+                % (JANELA.capitalize(), _reais(c['ytd_base'])))
+    if c['direcao'] in ('em queda', 'queda forte') and v is not None and v < 0:
+        if p is not None and abs(p) >= 90:
+            t = ('Comprava R$ %s %s e este ano só R$ %s. São R$ %s a menos.'
+                 % (_reais(c['ytd_base']), JANELA, _reais(atual), _reais(-v)))
+        else:
+            t = ('Caiu %d%% contra a média dos anos anteriores %s: R$ %s a menos.'
+                 % (round(abs(p or 0)), JANELA, _reais(-v)))
+        return ('queda', 'Caindo', -v, t)
+    if c['direcao'] == 'crescendo' and v is not None and v > 0:
+        if p is not None and p >= 300:
+            t = ('Comprava R$ %s %s e este ano já R$ %s. São R$ %s a mais.'
+                 % (_reais(c['ytd_base']), JANELA, _reais(atual), _reais(v)))
+        else:
+            t = ('Subiu %d%% contra a média dos anos anteriores %s: R$ %s a mais.'
+                 % (round(p or 0), JANELA, _reais(v)))
+        return ('crescer', 'Crescendo', v, t)
+    if c['direcao'] == 'novo':
+        return ('novo', 'Novo', atual,
+                'Primeira compra em %s, %d ao todo. Já trouxe R$ %s neste ano e '
+                'ainda não tem um ano anterior inteiro para comparar.'
+                % (_br_data(c['primeira']), c['compras'], _reais(atual)))
+    if c['ritmo'] in ('atrasado', 'muito atrasado'):
+        return ('ritmo', 'Atrasado', c['ticket'],
+                'Compra a cada ~%d dias e está há %d sem comprar. Um pedido dele '
+                'vale em média R$ %s.'
+                % (c['intervalo'] or 0, c['recencia'], _reais(c['ticket'])))
+    return None
+
+
+# ── comparativos ano a ano ────────────────────────────────────────────────────
+
+def _anos(nomes, C, pedidos, REF):
+    """Tres anos medidos sempre no mesmo pedaco do calendario.
+
+    Nunca um ano inteiro contra um ano pela metade: todo numero aqui e de
+    1 de janeiro ate o dia e mes da ultima venda carregada.
+    """
+    alvos = [REF.year - 2, REF.year - 1, REF.year]
+    linhas = []
+    for a in alvos:
+        ini, fim = date(a, 1, 1), date(a, REF.month, REF.day)
+        sel = [(d, n, v) for d, n, v in pedidos if ini <= d <= fim]
+        if not sel:
+            continue
+        rec = sum(v for _, _, v in sel)
+        cli = {n for _, n, _ in sel}
+        por = defaultdict(float)
+        for _, n, v in sel:
+            por[n] += v
+        top10 = sum(sorted(por.values(), reverse=True)[:10])
+        novos = sum(1 for n in cli if ini <= C[n]['primeira'] <= fim)
+        ant = {n for d, n, _ in pedidos
+               if date(a - 1, 1, 1) <= d <= date(a - 1, REF.month, REF.day)}
+        linhas.append({
+            'ano': a, 'receita': rec, 'pedidos': len(sel), 'clientes': len(cli),
+            'ticket': rec / len(sel), 'novos': novos,
+            'top10': (top10 / rec * 100) if rec else 0,
+            'base_ant': len(ant) or None,
+            'retidos': len(cli & ant) if ant else None,
+            'sumiram': len(ant - cli) if ant else None,
+        })
+
+    mensal = {str(a): [0.0] * 12 for a in alvos}
+    for d, _, v in pedidos:
+        if str(d.year) in mensal:
+            mensal[str(d.year)][d.month - 1] += v
+
+    fechado = {}
+    for a in alvos:
+        if a >= REF.year:
+            continue
+        sel = [(d, n, v) for d, n, v in pedidos if d.year == a]
+        if not sel:
+            continue
+        rec = sum(v for _, _, v in sel)
+        fechado[str(a)] = {'receita': rec, 'pedidos': len(sel),
+                           'clientes': len({n for _, n, _ in sel}),
+                           'ticket': rec / len(sel)}
+
+    mov = []
+    for n in nomes:
+        y = C[n]['ytd_anos']
+        mov.append({'nome': n, 'id': C[n]['id'],
+                    'anos': {k: y.get(k, 0.0) for k in map(str, alvos)},
+                    'dif': C[n]['var_ytd_abs']})
+    mov.sort(key=lambda x: -x['dif'])
+    return {'anos': linhas, 'mensal': mensal, 'fechado': fechado,
+            'sobe': mov[:8], 'desce': list(reversed(mov[-8:])),
+            'corte': '%02d/%02d' % (REF.day, REF.month), 'ultimo_ano': REF.year}
 
 
 def candidatos_unificacao(dados):
@@ -579,24 +815,83 @@ def _backtestar(nomes, mat, emp, C, faixa, REF):
 
 # ── prospeccao ────────────────────────────────────────────────────────────────
 
+# As etapas seguem o vocabulario que a Piromax ja usa na planilha do Albatros:
+# qualificar, qualificado e em conversao. Traduzir para "novo/contato" perderia
+# a diferenca entre quem ainda nao foi olhado e quem ja foi aprovado mas ainda
+# nao recebeu ligacao, que e justamente onde a fila de prospeccao trabalha.
 ETAPAS = [
-    ('novo',    'Novo',       'Entrou na lista e ninguem falou com ele ainda.'),
-    ('contato', 'Em contato', 'Alguem ja falou, a conversa esta viva.'),
-    ('ganho',   'Ganhou',     'Virou cliente. Some da fila e aparece na carteira.'),
-    ('perdido', 'Perdido',    'Nao vai acontecer, com o motivo escrito.'),
+    ('novo',        'A qualificar', 'Entrou na lista e ninguém olhou ainda.'),
+    ('qualificado', 'Qualificado',  'Serve como cliente, mas a conversa ainda não começou.'),
+    ('contato',     'Em conversa',  'Alguém já falou, a conversa está viva.'),
+    ('ganho',       'Ganhou',       'Virou cliente. Sai daqui e entra na carteira.'),
+    ('perdido',     'Perdido',      'Não vai acontecer, com o motivo escrito.'),
 ]
-ETAPAS_ABERTAS = ('novo', 'contato')
+ETAPAS_ABERTAS = ('novo', 'qualificado', 'contato')
+ETAPAS_VALIDAS = tuple(e[0] for e in ETAPAS)
+
+# Como cada rotulo de origem cai nas etapas acima.
+ETAPA_SINONIMO = {
+    'qualificar': 'novo', 'a qualificar': 'novo', 'novo': 'novo', 'lead': 'novo',
+    'prospect': 'novo', 'frio': 'novo',
+    'qualificado': 'qualificado', 'qualificada': 'qualificado', 'morno': 'qualificado',
+    'em conversao': 'contato', 'em conversa': 'contato', 'conversando': 'contato',
+    'contato': 'contato', 'em contato': 'contato', 'negociando': 'contato',
+    'negociacao': 'contato', 'quente': 'contato', 'em negociacao': 'contato',
+    'ganho': 'ganho', 'ganhou': 'ganho', 'cliente': 'ganho', 'fechado': 'ganho',
+    'convertido': 'ganho',
+    'perdido': 'perdido', 'perdeu': 'perdido', 'descartado': 'perdido',
+    'sem interesse': 'perdido',
+}
 
 # Sinonimos aceitos no cabecalho do CSV de leads. O objetivo e que o gestor
 # exporte de onde for e o arquivo entre sem precisar renomear coluna.
 COLUNAS_LEAD = {
-    'nome':     ['nome', 'empresa', 'razao social', 'cliente', 'lead', 'estabelecimento'],
-    'cidade':   ['cidade', 'municipio', 'localidade'],
-    'uf':       ['uf', 'estado', 'sigla'],
-    'contato':  ['contato', 'responsavel', 'pessoa', 'nome do contato', 'comprador'],
-    'telefone': ['telefone', 'fone', 'celular', 'whatsapp', 'whats', 'tel'],
-    'email':    ['email', 'e mail', 'e-mail', 'mail'],
+    'nome':      ['nome', 'empresa', 'razao social', 'cliente', 'lead', 'estabelecimento'],
+    'cidade':    ['cidade', 'municipio', 'localidade'],
+    'uf':        ['uf', 'estado', 'sigla'],
+    'contato':   ['contato', 'responsavel', 'pessoa', 'nome do contato', 'comprador'],
+    'telefone':  ['telefone', 'fone', 'celular', 'whatsapp', 'whats', 'tel'],
+    'email':     ['email', 'e mail', 'e-mail', 'mail'],
+    'etapa':     ['etapa', 'tipo de lead', 'status', 'situacao', 'estagio', 'fase', 'funil'],
+    'segmento':  ['segmento', 'atuacao', 'area de atuacao', 'tipo', 'perfil', 'ramo'],
+    'instagram': ['instagram', 'insta', 'perfil instagram', 'rede social', 'site'],
+    'obs':       ['obs', 'observacao', 'observacoes', 'nota', 'notas', 'comentario'],
 }
+
+# Estado vem escrito por extenso em quase toda planilha brasileira.
+UF_POR_NOME = {
+    'acre': 'AC', 'alagoas': 'AL', 'amapa': 'AP', 'amazonas': 'AM', 'bahia': 'BA',
+    'ceara': 'CE', 'distrito federal': 'DF', 'espirito santo': 'ES', 'goias': 'GO',
+    'maranhao': 'MA', 'mato grosso': 'MT', 'mato grosso do sul': 'MS',
+    'minas gerais': 'MG', 'para': 'PA', 'paraiba': 'PB', 'parana': 'PR',
+    'pernambuco': 'PE', 'piaui': 'PI', 'rio de janeiro': 'RJ',
+    'rio grande do norte': 'RN', 'rio grande do sul': 'RS', 'rondonia': 'RO',
+    'roraima': 'RR', 'santa catarina': 'SC', 'sao paulo': 'SP', 'sergipe': 'SE',
+    'tocantins': 'TO',
+}
+
+
+def normalizar_uf(txt):
+    """Aceita 'SP', 'São Paulo' ou 'sao paulo' e devolve sempre a sigla."""
+    t = (txt or '').strip()
+    if not t:
+        return ''
+    if t.upper() in REGIAO_DA_UF:
+        return t.upper()
+    por_nome = UF_POR_NOME.get(normalizar(t))
+    if por_nome:
+        return por_nome
+    return t.upper()[:2] if t.upper()[:2] in REGIAO_DA_UF else ''
+
+
+def normalizar_etapa(txt):
+    """Traduz o rotulo da planilha para uma das etapas do funil."""
+    t = normalizar(txt or '')
+    if not t:
+        return 'novo'
+    if t in ETAPA_SINONIMO:
+        return ETAPA_SINONIMO[t]
+    return t if t in ETAPAS_VALIDAS else 'novo'
 
 
 def id_lead(nome, cidade=''):
@@ -622,6 +917,16 @@ def ler_csv_leads(texto):
     if not linhas:
         return [], ['arquivo vazio']
 
+    # Planilha de ERP costuma vir com titulo e linhas em branco antes do
+    # cabecalho de verdade. Procura a primeira linha que tenha a coluna de nome.
+    inicio = 0
+    for i, linha in enumerate(linhas[:15]):
+        celulas = [normalizar(c) for c in linha]
+        if any(c in COLUNAS_LEAD['nome'] for c in celulas):
+            inicio = i
+            break
+    linhas = linhas[inicio:]
+
     cabecalho = [normalizar(c) for c in linhas[0]]
     mapa = {}
     for campo, nomes in COLUNAS_LEAD.items():
@@ -641,13 +946,15 @@ def ler_csv_leads(texto):
         nome = pega('nome')
         if not nome:
             continue
-        uf = pega('uf', 40).upper()
-        if uf not in REGIAO_DA_UF:
-            uf = uf[:2] if uf[:2] in REGIAO_DA_UF else ''
         leads.append({
-            'nome': nome.upper(), 'cidade': pega('cidade', 120), 'uf': uf,
+            'nome': nome.upper(), 'cidade': pega('cidade', 120),
+            'uf': normalizar_uf(pega('uf', 60)),
             'contato': pega('contato', 120), 'telefone': pega('telefone', 40),
             'email': pega('email', 160),
+            'etapa': normalizar_etapa(pega('etapa', 60)),
+            'segmento': pega('segmento', 60),
+            'instagram': pega('instagram', 300),
+            'obs': pega('obs', 1000),
         })
     return leads, erros
 
@@ -675,7 +982,9 @@ def analisar_leads(leads, clientes_dados=None):
         d['cliente_id'] = ja['id'] if ja else (d.get('cliente_id') or '')
         d['cliente_receita'] = ja['receita'] if ja else 0.0
         d['cliente_direcao'] = ja['direcao'] if ja else ''
-        d['regiao'] = REGIAO_DA_UF.get(d.get('uf') or '', '')
+        d['uf'] = normalizar_uf(d.get('uf') or '')
+        d['regiao'] = REGIAO_DA_UF.get(d['uf'], '')
+        d['regiao_nome'] = REGIOES[d['regiao']][0] if d['regiao'] else ''
         por_etapa[d['etapa']].append(d)
         saida.append(d)
 
@@ -694,4 +1003,15 @@ def analisar_leads(leads, clientes_dados=None):
         # artificialmente baixo que so cai conforme se importa mais lead.
         'conversao': (len(por_etapa['ganho']) / fechados * 100) if fechados else None,
         'ja_clientes': sum(1 for d in saida if d['ja_cliente']),
+        'por_segmento': _contar(saida, lambda d: d.get('segmento') or 'sem segmento'),
+        'por_regiao': _contar(saida, lambda d: d.get('regiao_nome') or 'sem estado'),
+        'por_uf': _contar(saida, lambda d: d.get('uf') or '—'),
     }
+
+
+def _contar(itens, chave):
+    """Contagem simples, do maior para o menor, para as barras da prospeccao."""
+    c = defaultdict(int)
+    for x in itens:
+        c[chave(x)] += 1
+    return sorted(([k, v] for k, v in c.items()), key=lambda p: -p[1])
