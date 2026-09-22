@@ -287,6 +287,7 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
         C[n]['atuacao'] = [str(x).strip().upper() for x in at]
         C[n]['atuacao_rotulo'] = rotulo_atuacao(C[n]['atuacao'])
         C[n]['atuacao_ufs'] = ufs_cobertas(C[n]['atuacao'])
+        C[n]['prioridade'] = bool(f.get('prioridade'))
         C[n]['tipo'] = (f.get('tipo') or 'carteira')
         if C[n]['tipo'] not in TIPOS:
             C[n]['tipo'] = 'carteira'
@@ -353,6 +354,7 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
             'receita_ocasional': sum(C[n]['receita'] for n in nomes if C[n]['ocasional']),
             'manuais': sum(1 for n in nomes if C[n]['classe_manual']),
             'feitos_hoje': sum(1 for n in nomes if C[n]['contato_hoje']),
+            'prioridades': sum(1 for n in nomes if C[n]['prioridade']),
             'sem_contato': sum(1 for n in nomes if C[n]['contato_ultimo'] is None),
         },
         'tipos': [[k, v[0], v[1]] for k, v in TIPOS.items()],
@@ -481,6 +483,7 @@ def _fila(nomes, C):
             'peso': round(peso, 2), 'texto': texto, 'marcas': marcas,
             'classe': c['classe'], 'direcao': c['direcao'], 'uf': c['uf_base'],
             'receita': c['receita'], 'motivo': c['motivo'],
+            'prioridade': c['prioridade'],
             'manual': bool(c['classe_manual']),
             'auto_rotulo': MOTIVO_ROTULO.get(c['motivo_auto'], 'Rotina'),
             'contato_rotulo': c['contato_rotulo'],
@@ -489,9 +492,11 @@ def _fila(nomes, C):
             'contato_hoje': c['contato_hoje'],
             'cadencia': c['cadencia'],
         })
-    # Feito hoje desce para o fim, sem sair da tela.
-    fila.sort(key=lambda x: (x['contato_hoje'], -x['contato_atraso'],
-                             -x['peso'], -x['receita']))
+    # Prioridade primeiro, porque e uma decisao do gestor e vale mais que
+    # qualquer criterio calculado. Depois a rotina, depois o dinheiro. Feito
+    # hoje desce para o fim, sem sair da tela.
+    fila.sort(key=lambda x: (x['contato_hoje'], not x['prioridade'],
+                             -x['contato_atraso'], -x['peso'], -x['receita']))
     return fila
 
 

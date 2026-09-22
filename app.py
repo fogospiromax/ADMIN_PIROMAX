@@ -1022,6 +1022,7 @@ def init_carteira_db():
             cadencia     INTEGER,
             tipo         TEXT DEFAULT 'carteira',
             classe_manual TEXT DEFAULT '',
+            prioridade   BOOLEAN DEFAULT FALSE,
             atualizado_em TEXT
         )''')
     cur.execute('''
@@ -1074,7 +1075,8 @@ def init_carteira_db():
     for coluna, tipo in (('atuacao', "TEXT DEFAULT ''"), ('motivo', "TEXT DEFAULT ''"),
                          ('dispensa', 'BOOLEAN DEFAULT FALSE'), ('cadencia', 'INTEGER'),
                          ('tipo', "TEXT DEFAULT 'carteira'"),
-                         ('classe_manual', "TEXT DEFAULT ''")):
+                         ('classe_manual', "TEXT DEFAULT ''"),
+                         ('prioridade', 'BOOLEAN DEFAULT FALSE')):
         cur.execute('ALTER TABLE carteira_ficha ADD COLUMN IF NOT EXISTS %s %s' % (coluna, tipo))
     cur.execute("ALTER TABLE carteira_ficha DROP COLUMN IF EXISTS motivo_tipo")
     # a mesma nota nunca entra duas vezes
@@ -1317,20 +1319,20 @@ def admin_carteira_ficha():
     cur.execute('''
         INSERT INTO carteira_ficha
             (cliente_id, cliente_nome, cidade, estado, situacao, motivo, atuacao, obs,
-             dispensa, cadencia, tipo, classe_manual, atualizado_em)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             dispensa, cadencia, tipo, classe_manual, prioridade, atualizado_em)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (cliente_id) DO UPDATE SET
             cliente_nome=EXCLUDED.cliente_nome, cidade=EXCLUDED.cidade,
             estado=EXCLUDED.estado, situacao=EXCLUDED.situacao,
             motivo=EXCLUDED.motivo, atuacao=EXCLUDED.atuacao,
             obs=EXCLUDED.obs, dispensa=EXCLUDED.dispensa, cadencia=EXCLUDED.cadencia,
             tipo=EXCLUDED.tipo, classe_manual=EXCLUDED.classe_manual,
-            atualizado_em=EXCLUDED.atualizado_em
+            prioridade=EXCLUDED.prioridade, atualizado_em=EXCLUDED.atualizado_em
     ''', (cid, (d.get('cliente_nome') or '')[:200], (d.get('cidade') or '')[:120],
           (d.get('estado') or '')[:2].upper(), situacao,
           (d.get('motivo') or '')[:1000], at,
           (d.get('obs') or '')[:2000], bool(d.get('dispensa')), cad,
-          tipo, cman, now_sp_str()))
+          tipo, cman, bool(d.get('prioridade')), now_sp_str()))
     conn.commit()
     cur.close()
     conn.close()
@@ -1435,7 +1437,13 @@ def admin_carteira_contato():
         ids = [d['cliente_id'].strip()]
     if not ids:
         return jsonify({'success': False, 'erro': 'nenhum cliente informado'}), 400
-    resumo = ((d.get('resumo') or '').strip() or 'Contato de rotina.')[:1000]
+    # O que foi conversado e obrigatorio. Um contato sem conteudo zera o relogio
+    # da rotina e nao deixa nada para quem abrir a ficha depois, que e o mesmo
+    # que nao ter registrado.
+    resumo = (d.get('resumo') or '').strip()[:1000]
+    if not resumo:
+        return jsonify({'success': False,
+                        'erro': 'escreva o que foi conversado antes de registrar'}), 400
     tipo = (d.get('tipo') or 'rotina')[:40]
     quando = d.get('data') or today_sp()
     conn = get_db()
@@ -1474,6 +1482,8 @@ def admin_carteira_rotina_lote():
     if 'classe_manual' in d:
         cm = (d.get('classe_manual') or '').strip()
         campos.append(('classe_manual', cm if cm in carteira.MOTIVO_ROTULO else ''))
+    if 'prioridade' in d:
+        campos.append(('prioridade', bool(d.get('prioridade'))))
     colunas = ', '.join(k for k, _ in campos)
     marcas = ', '.join(['%s'] * len(campos))
     sets = ', '.join('%s=EXCLUDED.%s' % (k, k) for k, _ in campos)
@@ -1726,6 +1736,101 @@ def admin_lead_salvar():
     cur.close()
     conn.close()
     return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/unificar', methods=['POST'])
+@login_required
+def admin_carteira_unificar():
+    """Junta dois ou mais cadastros que sao o mesmo cliente.
+
+    Nao basta criar o apelido. O id do cliente sai do nome, entao os contatos,
+    as tarefas e a ficha dos nomes absorvidos estao presos a ids que vao deixar
+    de existir. Este endpoint move tudo para o id do nome escolhido; sem isso a
+    unificacao junta o faturamento e perde o historico de relacionamento, que e
+    a metade do CRM que ninguem consegue refazer depois.
+
+    Na ficha, o que o canonico ja tem preenchido manda; campo vazio dele e
+    preenchido com o do absorvido, para nao jogar fora cidade ou motivo que so
+    estavam escritos num dos dois.
+    """
+    d = request.get_json(silent=True) or {}
+    canonico = (d.get('canonico') or '').strip().upper()
+    apelidos = [str(x).strip().upper() for x in (d.get('apelidos') or []) if str(x).strip()]
+    apelidos = [a for a in apelidos if a and a != canonico]
+    if not canonico or not apelidos:
+        return jsonify({'success': False,
+                        'erro': 'escolha o nome que fica e pelo menos um para juntar'}), 400
+
+    id_novo = carteira.id_cliente(canonico)
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # 1. a ficha do canonico, para saber o que ja esta preenchido
+    cur.execute('SELECT * FROM carteira_ficha WHERE cliente_id=%s', (id_novo,))
+    base = dict(cur.fetchone() or {})
+    TEXTOS = ('cidade', 'estado', 'motivo', 'atuacao', 'obs')
+
+    movidos = {'contatos': 0, 'tarefas': 0, 'fichas': 0}
+    for nome in apelidos:
+        id_velho = carteira.id_cliente(nome)
+        if id_velho == id_novo:
+            continue
+        cur.execute('UPDATE carteira_interacao SET cliente_id=%s WHERE cliente_id=%s',
+                    (id_novo, id_velho))
+        movidos['contatos'] += cur.rowcount
+        cur.execute('UPDATE carteira_tarefa SET cliente_id=%s WHERE cliente_id=%s',
+                    (id_novo, id_velho))
+        movidos['tarefas'] += cur.rowcount
+
+        cur.execute('SELECT * FROM carteira_ficha WHERE cliente_id=%s', (id_velho,))
+        velha = cur.fetchone()
+        if velha:
+            velha = dict(velha)
+            for campo in TEXTOS:
+                if not (base.get(campo) or '').strip() and (velha.get(campo) or '').strip():
+                    base[campo] = velha[campo]
+            for campo in ('dispensa', 'prioridade'):
+                base[campo] = bool(base.get(campo)) or bool(velha.get(campo))
+            if not base.get('cadencia') and velha.get('cadencia'):
+                base['cadencia'] = velha['cadencia']
+            if (base.get('situacao') or 'ativo') == 'ativo' and velha.get('situacao'):
+                base['situacao'] = velha['situacao']
+            cur.execute('DELETE FROM carteira_ficha WHERE cliente_id=%s', (id_velho,))
+            movidos['fichas'] += 1
+
+        # Apelido que apontava para o nome absorvido passa a apontar para o novo,
+        # antes de o proprio nome virar apelido. Sem isso, unificar A em B e
+        # depois B em C deixaria A apontando para um nome que nao existe mais.
+        cur.execute('UPDATE carteira_alias SET canonico=%s WHERE canonico=%s', (canonico, nome))
+        cur.execute('INSERT INTO carteira_alias (apelido, canonico) VALUES (%s,%s) '
+                    'ON CONFLICT (apelido) DO UPDATE SET canonico=EXCLUDED.canonico',
+                    (nome, canonico))
+
+    if base:
+        cur.execute('''
+            INSERT INTO carteira_ficha
+                (cliente_id, cliente_nome, cidade, estado, situacao, motivo, atuacao, obs,
+                 dispensa, cadencia, tipo, classe_manual, prioridade, atualizado_em)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (cliente_id) DO UPDATE SET
+                cliente_nome=EXCLUDED.cliente_nome, cidade=EXCLUDED.cidade,
+                estado=EXCLUDED.estado, situacao=EXCLUDED.situacao,
+                motivo=EXCLUDED.motivo, atuacao=EXCLUDED.atuacao, obs=EXCLUDED.obs,
+                dispensa=EXCLUDED.dispensa, cadencia=EXCLUDED.cadencia,
+                tipo=EXCLUDED.tipo, classe_manual=EXCLUDED.classe_manual,
+                prioridade=EXCLUDED.prioridade, atualizado_em=EXCLUDED.atualizado_em
+        ''', (id_novo, canonico[:200], base.get('cidade') or '', base.get('estado') or '',
+              base.get('situacao') or 'ativo', base.get('motivo') or '',
+              base.get('atuacao') or '', base.get('obs') or '',
+              bool(base.get('dispensa')), base.get('cadencia'),
+              base.get('tipo') or 'carteira', base.get('classe_manual') or '',
+              bool(base.get('prioridade')), now_sp_str()))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'canonico': canonico, 'juntados': apelidos,
+                    'movidos': movidos, 'cliente_id': id_novo})
 
 
 @app.route('/admin/carteira/lead/revenda-lote', methods=['POST'])
