@@ -161,7 +161,10 @@ td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:now
 .filtro{font:inherit;font-size:.82rem;padding:7px 9px;border:1.5px solid var(--linha);border-radius:8px;
   background:#fff;color:var(--texto);min-height:36px;max-width:190px}
 .filtro:focus{border-color:var(--roxo);outline:0}
-td.edit{white-space:nowrap;display:flex;gap:5px;align-items:center;border-bottom:1px solid var(--linha2)}
+/* O flex fica num div DENTRO da celula. Em <td> ele apaga o display:table-cell
+   e a coluna sai do alinhamento da tabela. */
+td.edit{white-space:nowrap}
+td.edit .par2{display:flex;gap:5px;align-items:center}
 td.edit input.cid{font:inherit;font-size:.8rem;width:112px;padding:5px 7px;border:1.5px solid transparent;
   border-radius:6px;background:#fbfaff;color:var(--texto);min-width:0}
 td.edit input.cid:hover{border-color:var(--linha)}
@@ -171,11 +174,10 @@ td.edit select.uf{font:inherit;font-size:.8rem;padding:5px 4px;border:1.5px soli
 td.edit select.uf:hover{border-color:var(--linha)}
 td.edit select.uf:focus{border-color:var(--roxo);background:#fff;outline:0}
 
-/* marcador do que ja foi feito hoje */
-.divisor{display:flex;align-items:center;gap:9px;padding:11px 14px;background:var(--bom-fundo);
-  border-top:1px solid var(--linha);border-bottom:1px solid var(--linha);
-  font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--bom)}
-.divisor .n{margin-left:auto;font-family:var(--mono);letter-spacing:0}
+/* etiqueta de quem ja esta em dia */
+.ficha.feito{border-color:#cfe6da;color:var(--bom)}
+.ficha.feito[aria-pressed="true"]{background:var(--bom);border-color:var(--bom);color:#fff}
+.ficha.feito[aria-pressed="true"] i{background:#fff!important}
 .linha.feita{background:#fafafa}
 .linha.feita .corpo{opacity:.5}
 .linha.feita .nome{text-decoration:line-through}
@@ -268,6 +270,7 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
 .lead:hover{border-color:var(--roxo);background:var(--roxo-claro)}
 .lead b{font-size:.82rem;color:var(--roxo-forte)}
 .lead small{font-size:.72rem;color:var(--texto2)}
+.lead small.insta{color:var(--roxo);font-weight:600}
 .pilha{display:flex;flex-direction:column;gap:7px;max-height:440px;overflow-y:auto;padding-right:3px}
 .acomps{display:flex;flex-direction:column;gap:2px;margin-top:9px;max-height:320px;overflow-y:auto}
 .acomp{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;cursor:pointer;
