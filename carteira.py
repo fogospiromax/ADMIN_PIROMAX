@@ -1045,28 +1045,23 @@ def ler_csv_leads(texto):
 
 
 def analisar_leads(leads, clientes_dados=None, hoje=None):
-    """Organiza os leads e cruza com a carteira.
+    """Organiza os leads do funil de prospeccao.
 
-    O cruzamento e a parte que importa: importar uma lista de feira e sair
-    ligando para quem ja compra todo mes e o jeito mais rapido de queimar o
-    time. Quem ja e cliente sai da fila e aparece marcado.
+    Nao existe mais cruzamento automatico por nome com a carteira. No ramo de
+    fogos o mesmo nome fantasia aparece em cidades diferentes e em donos
+    diferentes, entao bater o nome dizia "ja e cliente" para quem nao e, e uma
+    marca errada numa lista de prospeccao e pior do que marca nenhuma: tira da
+    fila alguem que deveria estar nela.
+
+    O que vale e o que o gestor marca a mao: revenda, quando o lead ja vende
+    produto Piromax comprado de um cliente dele.
     """
-    porcarteira = {}
-    if clientes_dados:
-        for c in clientes_dados['clientes']:
-            porcarteira[normalizar(c['nome'])] = c
-            for a in c.get('alias', []):
-                porcarteira[normalizar(a)] = c
-
     saida, por_etapa = [], defaultdict(list)
     for L in leads:
         d = dict(L)
         d['etapa'] = d.get('etapa') or 'novo'
-        ja = porcarteira.get(normalizar(d['nome']))
-        d['ja_cliente'] = bool(ja)
-        d['cliente_id'] = ja['id'] if ja else (d.get('cliente_id') or '')
-        d['cliente_receita'] = ja['receita'] if ja else 0.0
-        d['cliente_direcao'] = ja['direcao'] if ja else ''
+        d['revenda'] = bool(d.get('revenda'))
+        d['revenda_de'] = d.get('revenda_de') or ''
         d['uf'] = normalizar_uf(d.get('uf') or '')
         d['regiao'] = REGIAO_DA_UF.get(d['uf'], '')
         d['regiao_nome'] = REGIOES[d['regiao']][0] if d['regiao'] else ''
@@ -1087,7 +1082,9 @@ def analisar_leads(leads, clientes_dados=None, hoje=None):
         # a maior parte esta em aberto, dividir por todos daria um numero
         # artificialmente baixo que so cai conforme se importa mais lead.
         'conversao': (len(por_etapa['ganho']) / fechados * 100) if fechados else None,
-        'ja_clientes': sum(1 for d in saida if d['ja_cliente']),
+        'revendas': sum(1 for d in saida if d['revenda']),
+        'por_fornecedor': _contar([d for d in saida if d['revenda']],
+                                  lambda d: d['revenda_de'] or 'fornecedor não informado'),
         'por_segmento': _contar(saida, lambda d: d.get('segmento') or 'sem segmento'),
         'por_regiao': _contar(saida, lambda d: d.get('regiao_nome') or 'sem estado'),
         'por_uf': _contar(saida, lambda d: d.get('uf') or '—'),

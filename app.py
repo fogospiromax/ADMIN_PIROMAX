@@ -1059,12 +1059,15 @@ def init_carteira_db():
             cliente_id  TEXT DEFAULT '',
             segmento    TEXT DEFAULT '',
             instagram   TEXT DEFAULT '',
+            revenda     BOOLEAN DEFAULT FALSE,
+            revenda_de  TEXT DEFAULT '',
             origem_arq  TEXT DEFAULT '',
             criado_em   TEXT,
             atualizado_em TEXT
         )''')
     cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_lead_etapa ON carteira_lead(etapa)')
-    for coluna, tipo in (('segmento', "TEXT DEFAULT ''"), ('instagram', "TEXT DEFAULT ''")):
+    for coluna, tipo in (('segmento', "TEXT DEFAULT ''"), ('instagram', "TEXT DEFAULT ''"),
+                         ('revenda', 'BOOLEAN DEFAULT FALSE'), ('revenda_de', "TEXT DEFAULT ''")):
         cur.execute('ALTER TABLE carteira_lead ADD COLUMN IF NOT EXISTS %s %s' % (coluna, tipo))
     cur.execute('CREATE TABLE IF NOT EXISTS carteira_config (chave TEXT PRIMARY KEY, valor TEXT)')
     # migracao de bancos que nasceram antes destes campos
@@ -1584,20 +1587,12 @@ def admin_leads_previa():
     conn = get_db()
     cur = conn.cursor()
     novos, repetidos = _leads_novos(cur, leads)
-    # Quem do arquivo ja compra da casa. E o cruzamento que importa: importar uma
-    # lista de feira e sair ligando para quem ja compra todo mes queima o time.
-    cur.execute('SELECT DISTINCT cliente FROM carteira_vendas')
-    clientes = {carteira.normalizar(r[0]) for r in cur.fetchall()}
-    cur.execute('SELECT apelido FROM carteira_alias')
-    clientes |= {carteira.normalizar(r[0]) for r in cur.fetchall()}
-    ja = [L['nome'] for _, L in novos if carteira.normalizar(L['nome']) in clientes]
     cur.execute('SELECT COUNT(*) FROM carteira_lead')
     total = cur.fetchone()[0]
     cur.close()
     conn.close()
     return jsonify({'success': True, 'no_arquivo': len(leads), 'novos': len(novos),
                     'repetidos': len(repetidos), 'ja_no_banco': total,
-                    'ja_clientes': ja[:20], 'qtd_ja_clientes': len(ja),
                     'sem_uf': sum(1 for _, L in novos if not L.get('uf')),
                     'sem_telefone': sum(1 for _, L in novos if not L.get('telefone')),
                     'amostra': [L for _, L in novos[:10]],
@@ -1671,13 +1666,14 @@ def admin_lead_novo():
     cur.execute('''
         INSERT INTO carteira_lead (id, nome, cidade, uf, contato, telefone, email, etapa,
                                    segmento, instagram, obs, proximo, proximo_em,
-                                   origem_arq, criado_em, atualizado_em)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                   revenda, revenda_de, origem_arq, criado_em, atualizado_em)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     ''', (lid, nome, cidade, carteira.normalizar_uf(d.get('uf') or ''),
           (d.get('contato') or '')[:120], (d.get('telefone') or '')[:40],
           (d.get('email') or '')[:160], etapa, (d.get('segmento') or '')[:60],
           (d.get('instagram') or '')[:300], (d.get('obs') or '')[:2000],
           (d.get('proximo') or '')[:300], (d.get('proximo_em') or None),
+          bool(d.get('revenda')), (d.get('revenda_de') or '')[:200],
           'cadastrado à mão', agora, agora))
     conn.commit()
     cur.close()
@@ -1702,7 +1698,7 @@ def admin_lead_salvar():
     # parcial, e o lead perderia dado sem ninguem pedir.
     limites = {'cidade': 120, 'uf': 60, 'contato': 120, 'telefone': 40, 'email': 160,
                'motivo': 1000, 'obs': 2000, 'proximo': 300,
-               'segmento': 60, 'instagram': 300}
+               'segmento': 60, 'instagram': 300, 'revenda_de': 200}
     campos, valores = [], []
     for k, lim in limites.items():
         if k in d:
@@ -1715,6 +1711,9 @@ def admin_lead_salvar():
     if 'proximo_em' in d:
         campos.append('proximo_em=%s')
         valores.append(d.get('proximo_em') or None)
+    if 'revenda' in d:
+        campos.append('revenda=%s')
+        valores.append(bool(d.get('revenda')))
     campos.append('atualizado_em=%s')
     valores.append(now_sp_str())
     valores.append(lid)
@@ -1727,6 +1726,27 @@ def admin_lead_salvar():
     cur.close()
     conn.close()
     return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/lead/revenda-lote', methods=['POST'])
+@login_required
+def admin_lead_revenda_lote():
+    """Marca varios leads como revenda de um cliente da casa."""
+    d = request.get_json(silent=True) or {}
+    ids = [str(x).strip() for x in (d.get('ids') or []) if str(x).strip()]
+    if not ids:
+        return jsonify({'success': False, 'erro': 'selecione os leads'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('UPDATE carteira_lead SET revenda=%s, revenda_de=%s, atualizado_em=%s '
+                'WHERE id = ANY(%s)',
+                (bool(d.get('revenda')), (d.get('revenda_de') or '')[:200],
+                 now_sp_str(), ids[:500]))
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'gravados': n})
 
 
 @app.route('/admin/carteira/lead/etapa-lote', methods=['POST'])
