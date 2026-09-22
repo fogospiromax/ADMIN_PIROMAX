@@ -625,8 +625,10 @@ function abrirFicha(id, tipo, semRolar, focoContato) {
   // Vindo da fila, a ficha ja abre no campo de escrever o que foi conversado.
   var nota = focoContato ? $('fc-nota') : null;
   if (nota) {
-    nota.scrollIntoView({ block: 'center' });
-    nota.focus();
+    // 'nearest' respeita o scroll-padding-top e para logo abaixo da faixa,
+    // em vez de centralizar e empurrar os numeros do cliente para fora.
+    nota.scrollIntoView({ block: 'nearest' });
+    nota.focus({ preventScroll: true });
     return;
   }
   var x = $('fx');
@@ -666,9 +668,10 @@ function fichaCliente(id) {
     + '<h2 style="word-break:break-word">' + esc(c.nome) + '</h2>'
     + '<p style="margin-top:4px;color:var(--texto2);font-size:.79rem">' + esc(c.perfil)
       + ' · compra a cada ~' + (c.intervalo || '—') + ' dias · ' + c.compras + ' compras</p>'
+    + '<p class="url" style="margin-top:5px">' + location.origin + '/admin/carteira#/cliente/' + esc(id) + '</p>'
     + '</div><button class="x" id="fx" type="button" aria-label="Fechar ficha">✕</button></div>'
   + '<div class="gcorpo">'
-    + '<div class="url">' + location.origin + '/admin/carteira#/cliente/' + esc(id) + '</div>'
+    + faixaCliente(c, d, anos)
     + '<div class="gdupla">'
 
     // ── coluna da esquerda: o trabalho. Rotina e contato coladas, porque uma
@@ -680,6 +683,21 @@ function fichaCliente(id) {
           + (f.peso ? moeda(f.peso) + ' em jogo' : 'só rotina') + '</span></div>'
           + '<p class="nota" style="margin-top:5px">' + esc(f.texto) + '</p></div>' : '')
 
+      + '<div class="cartao" id="bloco-contato">'
+        + '<h3 style="margin-bottom:9px">Contatos</h3>'
+        + '<div class="campo"><label for="fc-nota">O que foi conversado</label>'
+          + '<textarea id="fc-nota" rows="3" placeholder="Ex.: falei com o Marcos, vai fechar pedido de '
+          + 'fim de ano em outubro. Pediu tabela dos morteiros de 3 polegadas."></textarea></div>'
+        + '<div class="acoes" style="margin-top:8px">'
+          + '<button class="pri" type="button" data-a="contato">Gravar contato</button>'
+          + '<span class="nota" style="margin:0;align-self:center">ou Ctrl+Enter</span></div>'
+        + (log.length ? '<div class="hist" style="margin-top:12px">' + log.map(function (i) {
+            return '<div class="it"><span class="d">' + dia(i.data) + '</span>'
+              + '<span class="t">' + esc(i.resumo) + '</span>'
+              + '<button class="del" type="button" data-del="' + esc(i.id) + '" aria-label="Apagar">✕</button></div>';
+          }).join('') + '</div>'
+          : '<p class="nota">Nenhum contato registrado ainda.</p>')
+      + '</div>'
       + '<div class="cartao" style="border-color:' + (c.contato_urgente ? '#f0dcae' : '#cfe6da') + '">'
         + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
         + '<h3>Rotina de contato</h3><span class="mono" style="font-weight:700;font-size:.79rem;color:' + cor + '">'
@@ -698,22 +716,6 @@ function fichaCliente(id) {
         + '<div class="campo" style="margin-top:10px"><label for="fc-cad">Cadência própria, em dias</label>'
           + '<input id="fc-cad" type="number" min="1" max="365" placeholder="vazio = padrão da classe ('
           + c.classe + ')" value="' + (c.cadencia_propria ? c.cadencia : '') + '"></div>'
-      + '</div>'
-
-      + '<div class="cartao" id="bloco-contato">'
-        + '<h3 style="margin-bottom:9px">Contatos</h3>'
-        + '<div class="campo"><label for="fc-nota">O que foi conversado</label>'
-          + '<textarea id="fc-nota" rows="3" placeholder="Ex.: falei com o Marcos, vai fechar pedido de '
-          + 'fim de ano em outubro. Pediu tabela dos morteiros de 3 polegadas."></textarea></div>'
-        + '<div class="acoes" style="margin-top:8px">'
-          + '<button class="pri" type="button" data-a="contato">Gravar contato</button>'
-          + '<span class="nota" style="margin:0;align-self:center">ou Ctrl+Enter</span></div>'
-        + (log.length ? '<div class="hist" style="margin-top:12px">' + log.map(function (i) {
-            return '<div class="it"><span class="d">' + dia(i.data) + '</span>'
-              + '<span class="t">' + esc(i.resumo) + '</span>'
-              + '<button class="del" type="button" data-del="' + esc(i.id) + '" aria-label="Apagar">✕</button></div>';
-          }).join('') + '</div>'
-          : '<p class="nota">Nenhum contato registrado ainda.</p>')
       + '</div>'
     + '</div>'
 
@@ -770,23 +772,62 @@ function fichaCliente(id) {
           + '<button class="pri" type="button" data-a="salvar">Salvar ficha</button></div>'
       + '</div>'
       + '<div class="cartao">'
-        + stat('Receita total', cheio(c.receita))
-        + stat('Pedido médio', cheio(c.ticket))
         + stat('Maior pedido', cheio(c.tmax))
-        + stat('Última compra', dia(c.ultima) + ' · ' + c.recencia + ' dias atrás')
         + stat('Primeira compra', dia(c.primeira))
-        + stat('Direção', d[0] + (c.ritmo ? ' · ' + c.ritmo : ''))
+        + stat('Compras no total', String(c.compras))
+        + stat('Entrou em', String(c.coorte))
         + stat('Área de atuação', c.atuacao_rotulo || 'não preenchida')
         + (c.alias && c.alias.length ? stat('Também aparecia como', esc(c.alias.join(', '))) : '')
       + '</div>'
-      + '<div class="grade g2">'
-        + '<div class="cartao"><h3 style="margin-bottom:8px">Mesmo período, ano a ano</h3>' + barrasAno(c, anos) + '</div>'
-        + '<div class="cartao"><h3 style="margin-bottom:8px">Quando ele compra</h3>' + sazCliente(c.mensal) + '</div>'
-      + '</div>'
+      + '<div class="cartao"><h3 style="margin-bottom:8px">Quando ele compra</h3>' + sazCliente(c.mensal) + '</div>'
     + '</div>'
 
     + '</div>'
   + '</div></aside>';
+}
+
+/* O que se olha antes de ligar fica na primeira tela, sem rolagem: tamanho do
+   cliente, pedido tipico, quando comprou pela ultima vez e a comparacao dos
+   tres anos. O resto e consulta e pode ficar embaixo. */
+function faixaCliente(c, d, anos) {
+  var cor = d[1] === 'crescer' ? 'var(--bom)' : d[1] === 'queda' ? 'var(--ruim)'
+          : d[1] === 'novo' ? 'var(--s1)' : 'var(--frio)';
+  var tile = function (k, v, s2, corv) {
+    return '<div class="tile"><span class="k">' + k + '</span>'
+      + '<span class="v"' + (corv ? ' style="color:' + corv + '"' : '') + '>' + v + '</span>'
+      + (s2 ? '<span class="s">' + s2 + '</span>' : '') + '</div>';
+  };
+  var v = c.var_ytd_pct;
+  return '<div class="cartao faixa">'
+    + '<div class="nums">'
+      + tile('Receita total', cheio(c.receita), c.compras + ' compras')
+      + tile('Pedido médio', cheio(c.ticket), 'maior: ' + moeda(c.tmax))
+      + tile('Última compra', dia(c.ultima), c.recencia + ' dias atrás'
+          + (c.intervalo ? ' · compra a cada ~' + c.intervalo : ''))
+      + tile('No ano vs. média', v === null ? '—' : pct(v),
+             d[0] + (c.ritmo ? ' · ' + c.ritmo : ''), v === null ? '' : cor)
+    + '</div>'
+    + '<div class="anosmini">' + barrasAnoMini(c, anos) + '</div>'
+  + '</div>';
+}
+
+function barrasAnoMini(c, anos) {
+  var vals = anos.map(function (a) { return c.ytd_anos[a] || 0; });
+  var max = Math.max.apply(null, vals) || 1;
+  var w = 196, h = 52, bw = 40, gap = 18, x0 = 8;
+  var s = '<svg viewBox="0 0 ' + w + ' ' + (h + 28) + '" width="' + w + '" height="' + (h + 28)
+    + '" role="img" aria-label="Receita no mesmo período de cada ano">';
+  vals.forEach(function (val, i) {
+    var a = (val / max) * h, x = x0 + i * (bw + gap);
+    var cr = i === vals.length - 1 ? 'var(--s1)' : (i === vals.length - 2 ? 'var(--s2)' : 'var(--s3)');
+    s += '<rect x="' + x + '" y="' + (h - a).toFixed(1) + '" width="' + bw + '" height="'
+      + Math.max(a, 1).toFixed(1) + '" rx="2" fill="' + cr + '"/>'
+      + '<text x="' + (x + bw / 2) + '" y="' + (h + 12) + '" font-size="9" fill="var(--texto3)" text-anchor="middle">'
+      + anos[i] + '</text>'
+      + '<text x="' + (x + bw / 2) + '" y="' + (h + 24) + '" font-size="9.5" fill="var(--texto)" '
+      + 'text-anchor="middle" font-weight="600">' + moeda(val).replace('R$ ', '') + '</text>';
+  });
+  return s + '</svg><span class="leg2">1º de janeiro até o mesmo dia de cada ano</span>';
 }
 
 function fichaLead(id) {
