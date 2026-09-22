@@ -13,15 +13,27 @@
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
   --roxo:#7c3aed; --roxo-claro:#f5f3ff; --roxo-borda:#ede9fe; --roxo-forte:#1e1b4b;
-  --fundo:#f8f7ff; --branco:#fff; --linha:#ede9fe; --linha2:#ddd6fe;
+  --fundo:#f8f7ff; --branco:#fff; --linha:#ede9fe; --linha2:#f3f0fd;
   --texto:#2d3748; --texto2:#6b7280; --texto3:#9ca3af;
-  --s1:#2a78d6; --s2:#eb6834;
+  /* series dos tres anos: slots categoricos validados para daltonismo */
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
   --o1:#86b6ef; --o2:#5598e7; --o3:#2a78d6; --o4:#256abf; --o5:#1c5cab; --o6:#184f95; --o7:#104281;
-  --bom:#16a34a; --atencao:#ca8a04; --serio:#ea580c; --critico:#dc2626;
+  --bom:#166b4a; --bom-fundo:#e5f2ec;
+  --atencao:#8d6008; --atencao-fundo:#faf0dc;
+  --ruim:#b03027; --ruim-fundo:#fbeae8;
+  --frio:#4a5a72; --frio-fundo:#eef1f6;
   --sombra:0 2px 12px rgba(124,58,237,0.07);
+  --sombra-forte:0 1px 2px rgba(18,24,36,.06),0 10px 30px -12px rgba(30,27,75,.25);
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:10px;
 }
-body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--fundo);color:var(--texto);min-height:100vh}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--fundo);color:var(--texto);
+  min-height:100vh;overflow-anchor:none;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+a{color:var(--roxo)}
+:focus-visible{outline:2px solid var(--roxo);outline-offset:2px;border-radius:5px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 
 header{background:#fff;border-bottom:1px solid var(--roxo-borda);box-shadow:0 1px 8px rgba(124,58,237,.07);
   padding:14px 20px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:30}
@@ -34,170 +46,224 @@ header{background:#fff;border-bottom:1px solid var(--roxo-borda);box-shadow:0 1p
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .btn-voltar{background:none;border:1.5px solid #e5e7eb;border-radius:8px;padding:6px 12px;
   font-size:.78rem;font-weight:600;color:var(--texto2);text-decoration:none;flex-shrink:0}
-.btn-voltar:hover{border-color:var(--linha2);color:var(--roxo)}
+.btn-voltar:hover{border-color:var(--roxo-borda);color:var(--roxo)}
 
 nav.abas{background:#fff;border-bottom:1px solid var(--roxo-borda);position:sticky;top:69px;z-index:29;
   display:flex;gap:2px;padding:0 14px;overflow-x:auto;scrollbar-width:none}
 nav.abas::-webkit-scrollbar{display:none}
-.aba{background:none;border:0;border-bottom:2.5px solid transparent;color:var(--texto2);
-  font:600 .83rem/1 'Segoe UI',system-ui,sans-serif;padding:13px 12px;cursor:pointer;white-space:nowrap}
+.aba{background:none;border:0;border-bottom:2.5px solid transparent;padding:12px 14px;cursor:pointer;
+  font-size:.86rem;font-weight:600;color:var(--texto2);white-space:nowrap;display:flex;align-items:center;gap:7px}
 .aba:hover{color:var(--roxo-forte)}
 .aba[aria-selected="true"]{color:var(--roxo);border-bottom-color:var(--roxo)}
+.aba .cnt{font-family:var(--mono);font-size:.68rem;background:var(--roxo-claro);color:var(--roxo);
+  border-radius:20px;padding:1px 7px;font-weight:700}
+.aba[aria-selected="true"] .cnt{background:var(--roxo);color:#fff}
 
-.container{max-width:1120px;margin:0 auto;padding:22px 16px 60px}
-section{margin-bottom:26px}
-h2{font-size:1.02rem;font-weight:800;color:var(--roxo-forte);margin-bottom:4px}
-.nota{font-size:.81rem;color:var(--texto2);margin-bottom:12px;max-width:70ch;line-height:1.55}
-.cartao{background:#fff;border-radius:16px;border:1.5px solid var(--roxo-borda);box-shadow:var(--sombra);padding:18px 20px}
+main{max-width:1180px;margin:0 auto;padding:22px 18px 80px}
+.painel[hidden]{display:none}
+.olho{font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;font-weight:700;color:var(--texto3);margin-bottom:5px}
+h1{font-size:1.4rem;font-weight:700;color:var(--roxo-forte);letter-spacing:-.015em;margin-bottom:4px;text-wrap:balance}
+h2{font-size:1.02rem;font-weight:700;color:var(--roxo-forte)}
+h3{font-size:.86rem;font-weight:700;color:var(--roxo-forte)}
+.lede{color:var(--texto2);font-size:.88rem;max-width:66ch;line-height:1.5}
+.nota{font-size:.79rem;color:var(--texto2);line-height:1.55;margin-top:9px;max-width:70ch}
+.nota b{color:var(--texto);font-weight:700}
+.nota.fraca{color:var(--texto3)}
 
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:22px}
-.kpi{background:#fff;border-radius:14px;border:1.5px solid var(--roxo-borda);box-shadow:var(--sombra);padding:14px 16px}
-.kpi .lab{font-size:.66rem;letter-spacing:.07em;text-transform:uppercase;color:var(--texto3);font-weight:700}
-.kpi .val{font-size:1.5rem;font-weight:800;color:var(--roxo-forte);margin-top:5px;line-height:1.15}
-.kpi .fine{font-size:.76rem;color:var(--texto2);margin-top:3px}
-.sobe{color:var(--bom);font-weight:700}.desce{color:var(--critico);font-weight:700}
+.cartao{background:#fff;border:1px solid var(--linha);border-radius:var(--r);padding:16px;box-shadow:var(--sombra)}
+.grade{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
 
-.graf{background:#fff;border-radius:16px;border:1.5px solid var(--roxo-borda);box-shadow:var(--sombra);padding:18px 16px 10px}
-.graf h3{font-size:.86rem;font-weight:700;color:var(--roxo-forte);margin-bottom:2px}
-.graf .cap{font-size:.76rem;color:var(--texto3);margin-bottom:12px}
-svg{display:block;width:100%;height:auto;overflow:visible}
-.gridline{stroke:#f0edff;stroke-width:1}.axisline{stroke:var(--linha2);stroke-width:1}
-.tick{fill:var(--texto3);font:500 10.5px var(--mono)}
-.mlab{fill:var(--texto2);font:600 11px 'Segoe UI',sans-serif}
-.dlab{fill:var(--roxo-forte);font:700 11px 'Segoe UI',sans-serif}
-.legenda{display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 2px;font-size:.76rem;color:var(--texto2)}
-.legenda i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.heroi{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 30px;margin:14px 0 16px;
+  padding-bottom:16px;border-bottom:1px solid var(--linha)}
+.heroi .n{font-family:var(--mono);font-size:2.5rem;font-weight:600;letter-spacing:-.03em;line-height:1;color:var(--roxo-forte)}
+.heroi .sub{color:var(--texto2);font-size:.82rem;padding-bottom:3px;line-height:1.5}
+.heroi .sub b{color:var(--texto);font-weight:700}
 
-#dica{position:fixed;z-index:90;pointer-events:none;background:#fff;border:1.5px solid var(--linha2);
-  border-radius:10px;box-shadow:0 8px 26px rgba(124,58,237,.18);padding:9px 11px;font-size:.78rem;
-  max-width:270px;opacity:0;transition:opacity .09s}
-#dica b{display:block;margin-bottom:3px;color:var(--roxo-forte)}
-#dica .r{display:flex;justify-content:space-between;gap:14px}
-#dica .r span:last-child{font-family:var(--mono);font-weight:600}
+.kv{display:flex;flex-direction:column;gap:1px}
+.kv .k{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--texto3);font-weight:700}
+.kv .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:1.18rem;font-weight:600;letter-spacing:-.02em;color:var(--roxo-forte)}
+.kvlinha{display:flex;flex-wrap:wrap;gap:20px 34px}
 
-.tabwrap{overflow-x:auto;background:#fff;border-radius:16px;border:1.5px solid var(--roxo-borda);box-shadow:var(--sombra)}
-table{border-collapse:collapse;width:100%;font-size:.83rem;min-width:620px}
-#t-cli,#t-acao{min-width:1000px}
-th{text-align:left;font:700 .65rem/1.3 'Segoe UI',sans-serif;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--texto3);padding:12px;border-bottom:1.5px solid var(--linha);white-space:nowrap;background:#fff}
-th.s{cursor:pointer;user-select:none}th.s:hover{color:var(--roxo)}
-th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
-td{padding:10px 12px;border-bottom:1px solid #f4f1ff;vertical-align:middle}
-tr:last-child td{border-bottom:0}
-tbody tr.cli{cursor:pointer}tbody tr.cli:hover{background:var(--roxo-claro)}
-td.nome{font-weight:600;color:var(--roxo-forte);max-width:280px}
-.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.vazio{color:var(--texto3);font-size:.82rem;padding:16px}
+.fichas{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:13px}
+.ficha{border:1.5px solid var(--linha);background:#fff;color:var(--texto2);padding:5px 11px;border-radius:99px;
+  cursor:pointer;font-size:.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px;min-height:31px}
+.ficha:hover{border-color:var(--roxo-borda);color:var(--roxo-forte)}
+.ficha[aria-pressed="true"]{background:var(--roxo);color:#fff;border-color:var(--roxo)}
+.ficha .n{font-family:var(--mono);font-size:.68rem;opacity:.75}
+.ficha i{width:7px;height:7px;border-radius:2px;display:block}
 
-.selo{display:inline-flex;align-items:center;gap:5px;font:700 .68rem/1 'Segoe UI',sans-serif;
-  padding:4px 9px;border-radius:20px;white-space:nowrap}
-.selo i{width:7px;height:7px;border-radius:50%;display:inline-block}
-.sv-crit{background:#fef2f2;color:#991b1b}.sv-crit i{background:var(--critico)}
-.sv-ser{background:#fff7ed;color:#9a3412}.sv-ser i{background:var(--serio)}
-.sv-at{background:#fefce8;color:#854d0e}.sv-at i{background:var(--atencao)}
-.sv-ok{background:#f0fdf4;color:#166534}.sv-ok i{background:var(--bom)}
-.sv-off{background:#f3f4f6;color:#4b5563}.sv-off i{background:#9ca3af}
-.cls{font:700 .66rem var(--mono);padding:2px 7px;border-radius:5px}
-.clsA{background:var(--roxo-claro);color:var(--roxo)}
-.clsB{background:#f3f4f6;color:var(--texto2)}
-.clsC{background:transparent;color:var(--texto3)}
+.selo{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;
+  border-radius:4px;white-space:nowrap;display:inline-block}
+.s-recuperar,.s-queda{background:var(--ruim-fundo);color:var(--ruim)}
+.s-crescer{background:var(--bom-fundo);color:var(--bom)}
+.s-novo{background:#e8eefb;color:#1d4ed8}
+.s-ritmo{background:var(--atencao-fundo);color:var(--atencao)}
+.s-rotina,.s-classe{background:var(--frio-fundo);color:var(--frio)}
 
-.ctrls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
-input[type=search],input[type=text],input[type=date],select,textarea{
-  font:400 .84rem 'Segoe UI',system-ui,sans-serif;color:var(--texto);background:#fff;
-  border:1.5px solid var(--linha2);border-radius:9px;padding:8px 11px}
-input[type=search]{flex:1 1 220px;min-width:180px}
-textarea{width:100%;resize:vertical;line-height:1.5}
-input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{
-  outline:2px solid var(--roxo);outline-offset:1px}
-.cont{font-size:.78rem;color:var(--texto3);margin-left:auto;font-variant-numeric:tabular-nums}
-.bt{background:#fff;border:1.5px solid var(--linha2);border-radius:9px;font:700 .79rem 'Segoe UI',sans-serif;
-  padding:8px 13px;cursor:pointer;color:var(--texto)}
-.bt:hover{border-color:var(--roxo);color:var(--roxo)}
-.bt.p{background:var(--roxo);border-color:var(--roxo);color:#fff}
-.bt.p:hover{background:#6d28d9;color:#fff}
-.bt.sm{padding:5px 10px;font-size:.72rem}
-.bt[disabled]{opacity:.45;cursor:not-allowed}
-.faixa{border-radius:12px;padding:12px 15px;font-size:.8rem;line-height:1.55;margin-bottom:18px;
-  background:#fffbeb;border:1.5px solid #fde68a;color:#78350f}
-.faixa b{font-weight:800}
-.faixa.erro{background:#fef2f2;border-color:#fecaca;color:#991b1b}
-.faixa.ok{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
+/* ── fila ── */
+.fila{display:flex;flex-direction:column;border:1px solid var(--linha);border-radius:var(--r);
+  overflow:hidden;background:#fff;box-shadow:var(--sombra)}
+.linha{display:grid;grid-template-columns:4px 1fr auto;border-bottom:1px solid var(--linha2)}
+.linha:last-child{border-bottom:0}
+.linha .faixa{display:block}
+.f-recuperar,.f-queda{background:var(--ruim)}
+.f-crescer{background:var(--bom)}
+.f-novo{background:var(--s1)}
+.f-ritmo{background:var(--atencao)}
+.f-rotina{background:var(--frio)}
+.linha.emdia{background:#fbfaff}
+.linha.emdia .faixa{opacity:.3}
+.linha .corpo{background:none;border:0;cursor:pointer;text-align:left;padding:12px 14px;min-width:0;
+  display:flex;flex-direction:column;gap:4px}
+.linha:has(.corpo:hover),.linha:has(.corpo:focus-visible){background:var(--roxo-claro)}
+.linha .topo{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.linha .nome{font-weight:700;color:var(--roxo-forte);font-size:.92rem}
+.linha .frase{color:var(--texto2);font-size:.79rem;line-height:1.45}
+.linha .marca{font-size:.71rem;color:var(--atencao)}
+.linha .marca.ok{color:var(--bom)}
+.linha .marca.obs{color:var(--roxo)}
+.linha .dir{padding:12px 14px 12px 10px;display:flex;flex-direction:column;align-items:flex-end;
+  justify-content:center;gap:4px;flex:0 0 auto}
+.linha .valor{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;font-size:.95rem;
+  white-space:nowrap;color:var(--roxo-forte)}
+.linha .leg{font-size:.62rem;color:var(--texto3);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.btn-ok{background:#fff;border:1.5px solid var(--linha);border-radius:7px;padding:5px 10px;font-size:.72rem;
+  font-weight:600;cursor:pointer;color:var(--texto2);white-space:nowrap;min-height:31px}
+.btn-ok:hover{border-color:var(--bom);color:var(--bom)}
+.btn-ok[disabled]{opacity:.5;cursor:default}
 
-#gaveta{position:fixed;inset:0;z-index:80;background:rgba(30,27,75,.4);display:flex;justify-content:flex-end}
-#gaveta[hidden]{display:none!important}
-.folha{background:#fff;width:min(580px,100%);height:100%;overflow-y:auto;padding:20px 20px 40px}
-.folha-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px}
-.folha h3{font-size:1.1rem;font-weight:800;color:var(--roxo-forte);line-height:1.3}
-.folha h4{font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;
-  color:var(--texto3);margin:22px 0 8px}
-.fatos{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:14px 0}
-.fato{background:var(--fundo);border-radius:10px;padding:9px 11px}
-.fato .l{font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;color:var(--texto3);font-weight:700}
-.fato .v{font-family:var(--mono);font-size:.88rem;font-weight:600;margin-top:3px;color:var(--roxo-forte)}
-.campos{display:grid;grid-template-columns:2fr 1fr;gap:10px}
-.campo label{display:block;font:700 .63rem/1.4 'Segoe UI',sans-serif;letter-spacing:.06em;
-  text-transform:uppercase;color:var(--texto3);margin-bottom:4px}
-.campo input,.campo select,.campo textarea{width:100%}
-.salvo{font-size:.7rem;color:var(--bom);margin-left:6px;opacity:0;transition:opacity .2s}
-.salvo.on{opacity:1}
-.linha-log{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:baseline;
-  padding:9px 0;border-bottom:1px solid #f4f1ff;font-size:.81rem}
-.linha-log:last-child{border-bottom:0}
-.linha-log .d{font-family:var(--mono);font-size:.73rem;color:var(--texto3);white-space:nowrap}
-.tsk{display:grid;grid-template-columns:auto 1fr auto auto;gap:9px;align-items:center;
-  padding:8px 0;border-bottom:1px solid #f4f1ff;font-size:.81rem}
-.tsk:last-child{border-bottom:0}
-.tsk.feita .tt{text-decoration:line-through;color:var(--texto3)}
-.tsk .pz{font-family:var(--mono);font-size:.73rem;color:var(--texto3);white-space:nowrap}
-.tsk .pz.atrasada{color:var(--critico);font-weight:700}
-.novo{display:grid;grid-template-columns:130px 1fr auto;gap:8px;margin-top:10px;align-items:center}
-.barras{display:flex;flex-direction:column;gap:9px}
-.bl{display:grid;grid-template-columns:140px 1fr auto;gap:10px;align-items:center;font-size:.79rem}
-.bl .t{color:var(--texto2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.trilho{background:#f0edff;border-radius:5px;height:17px;overflow:hidden}
-.ench{height:100%;border-radius:5px}
-.bl .v{font-family:var(--mono);font-size:.74rem;color:var(--roxo-forte);white-space:nowrap}
-.sub-ind{display:flex;align-items:flex-end;gap:2px;height:66px}
-.sub-ind>div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px}
-.sub-ind span{font:600 9px var(--mono);color:var(--texto3)}
-code{font-family:var(--mono);font-size:.76rem;background:var(--roxo-claro);padding:2px 6px;border-radius:5px}
-@media(max-width:620px){
-  .campos,.novo{grid-template-columns:1fr}
-  .bl{grid-template-columns:100px 1fr auto}
+.mais{margin-top:13px;background:#fff;border:1.5px solid var(--linha);border-radius:8px;padding:9px 16px;
+  cursor:pointer;font-weight:600;color:var(--texto2);font-size:.82rem}
+.mais:hover{border-color:var(--roxo-borda);color:var(--roxo)}
+.vazio{padding:32px 16px;text-align:center;color:var(--texto2);font-size:.83rem;line-height:1.6}
+
+/* ── tabelas ── */
+.barra{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:11px}
+.busca{flex:1 1 220px;min-width:0;display:flex;align-items:center;gap:8px;background:#fff;
+  border:1.5px solid var(--linha);border-radius:8px;padding:0 11px;min-height:36px}
+.busca input{border:0;background:none;outline:0;flex:1;min-width:0;color:var(--texto);font:inherit;padding:7px 0;font-size:.85rem}
+.tw{overflow-x:auto;border:1px solid var(--linha);border-radius:var(--r);background:#fff;box-shadow:var(--sombra)}
+table{border-collapse:collapse;width:100%;min-width:680px}
+th{text-align:left;font-size:.65rem;text-transform:uppercase;letter-spacing:.07em;color:var(--texto3);
+  font-weight:700;padding:9px 12px;border-bottom:1px solid var(--linha);background:#fbfaff;white-space:nowrap}
+th.num,td.num{text-align:right}
+th button{background:none;border:0;padding:0;cursor:pointer;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit}
+th button:hover{color:var(--roxo)}
+td{padding:10px 12px;border-bottom:1px solid var(--linha2);vertical-align:middle;font-size:.84rem}
+tbody tr:last-child td{border-bottom:0}
+tbody tr[data-id]{cursor:pointer}
+tbody tr[data-id]:hover td{background:var(--roxo-claro)}
+td.nm{font-weight:600;color:var(--roxo-forte);max-width:300px}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pos{color:var(--bom)}.neg{color:var(--ruim)}
+.marc{width:34px;text-align:center}
+.marc input{width:16px;height:16px;accent-color:var(--roxo);cursor:pointer}
+
+/* ── analise ── */
+.anal{display:grid;grid-template-columns:172px 1fr;gap:28px;align-items:start}
+.indice{position:sticky;top:126px;display:flex;flex-direction:column;gap:1px}
+.indice a{padding:6px 10px;border-radius:7px;text-decoration:none;color:var(--texto2);font-size:.8rem;font-weight:600}
+.indice a:hover{background:var(--roxo-claro);color:var(--roxo)}
+.cap{margin-bottom:30px;scroll-margin-top:130px}
+.cap>header{background:none;border:0;box-shadow:none;padding:0;position:static;display:flex;align-items:baseline;
+  justify-content:space-between;gap:12px;margin-bottom:9px;flex-wrap:wrap}
+.cap>header .quando{font-family:var(--mono);color:var(--texto3);font-size:.73rem}
+details.saiba{margin-top:9px;font-size:.79rem}
+details.saiba summary{cursor:pointer;color:var(--roxo);font-weight:600;list-style:none}
+details.saiba summary::-webkit-details-marker{display:none}
+details.saiba summary::before{content:"? ";font-weight:700}
+details.saiba p{color:var(--texto2);line-height:1.55;margin-top:7px;max-width:70ch}
+.svgbox{width:100%;overflow-x:auto;position:relative}
+svg text{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.dica{position:absolute;pointer-events:none;background:#fff;border:1px solid var(--linha);border-radius:8px;
+  box-shadow:var(--sombra-forte);padding:8px 10px;font-size:.76rem;min-width:150px;z-index:5;
+  display:flex;flex-direction:column;gap:3px}
+.dica b{font-size:.64rem;text-transform:uppercase;letter-spacing:.07em;color:var(--texto3)}
+.dica span{display:flex;align-items:center;gap:6px;color:var(--texto2)}
+.dica i{width:10px;height:3px;border-radius:2px;display:block;flex:0 0 10px}
+.dica em{margin-left:auto;font-style:normal;font-family:var(--mono);font-weight:600;color:var(--texto)}
+rect.hov:hover{fill:rgba(124,58,237,.05)}
+.legenda{display:flex;gap:14px;flex-wrap:wrap}
+.legenda span{display:inline-flex;align-items:center;gap:6px;font-size:.76rem;color:var(--texto);font-weight:600}
+.legenda i{width:14px;height:3px;border-radius:2px;display:block}
+
+.par{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--linha2)}
+.par:last-child{border-bottom:0}
+.par .n{flex:1 1 190px;min-width:0;font-size:.85rem}
+.par small{color:var(--texto3);font-family:var(--mono);font-size:.73rem}
+
+/* ── gaveta ── */
+.veu{position:fixed;inset:0;background:rgba(30,27,75,.34);z-index:40;border:0;padding:0;cursor:default}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(540px,100%);background:#fff;border-left:1px solid var(--linha);
+  z-index:41;display:flex;flex-direction:column;box-shadow:var(--sombra-forte)}
+.gtopo{display:flex;align-items:flex-start;gap:12px;padding:16px 18px 13px;border-bottom:1px solid var(--linha)}
+.gtopo .x{margin-left:auto;background:none;border:1.5px solid var(--linha);border-radius:7px;width:31px;height:31px;
+  cursor:pointer;color:var(--texto2);flex:0 0 31px;line-height:1}
+.gtopo .x:hover{border-color:var(--roxo-borda);color:var(--roxo)}
+.gcorpo{overflow-y:auto;padding:16px 18px 40px;display:flex;flex-direction:column;gap:16px}
+.url{font-family:var(--mono);font-size:.68rem;color:var(--texto3);word-break:break-all;background:#fbfaff;
+  border:1px solid var(--linha2);border-radius:6px;padding:5px 8px}
+.acoes{display:flex;gap:7px;flex-wrap:wrap}
+.acoes button{background:#fff;border:1.5px solid var(--linha);border-radius:8px;padding:8px 13px;cursor:pointer;
+  font-weight:600;min-height:38px;color:var(--texto2);font-size:.82rem}
+.acoes button:hover{border-color:var(--roxo-borda);color:var(--roxo)}
+.acoes button.pri{background:var(--roxo);border-color:var(--roxo);color:#fff}
+.acoes button.pri:hover{background:#6d28d9;color:#fff}
+.campo{display:flex;flex-direction:column;gap:5px}
+.campo label{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--texto3);font-weight:700}
+.campo textarea,.campo input,.campo select{font:inherit;font-size:.85rem;color:var(--texto);background:#fbfaff;
+  border:1.5px solid var(--linha);border-radius:8px;padding:8px 10px;resize:vertical;width:100%}
+.campo textarea:focus,.campo input:focus,.campo select:focus{border-color:var(--roxo);outline:0;background:#fff}
+.stat{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--linha2);font-size:.84rem}
+.stat:last-child{border-bottom:0}
+.stat .k{color:var(--texto2)}
+.stat .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;color:var(--roxo-forte)}
+.hist{display:flex;flex-direction:column;gap:7px;max-height:260px;overflow-y:auto}
+.hist .it{display:flex;gap:9px;font-size:.8rem;padding-bottom:7px;border-bottom:1px solid var(--linha2)}
+.hist .it:last-child{border-bottom:0;padding-bottom:0}
+.hist .d{font-family:var(--mono);color:var(--texto3);flex:0 0 76px;font-size:.73rem}
+.hist .t{flex:1;min-width:0;color:var(--texto2);word-break:break-word}
+.hist .del{background:none;border:0;color:var(--texto3);cursor:pointer;font-size:.8rem;padding:0 3px}
+.hist .del:hover{color:var(--ruim)}
+
+/* ── dados / prospeccao ── */
+.solto{border:1.5px dashed var(--linha2);border-radius:var(--r);padding:24px 16px;text-align:center;
+  color:var(--texto2);background:#fbfaff;cursor:pointer;font-size:.82rem}
+.solto:hover{border-color:var(--roxo);background:var(--roxo-claro)}
+.solto b{display:block;color:var(--roxo-forte);font-size:.9rem;margin-bottom:3px}
+.solto.sobre{border-color:var(--roxo);background:var(--roxo-claro)}
+.funil{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.col{display:flex;flex-direction:column;gap:8px}
+.col .cab{display:flex;align-items:center;gap:7px}
+.col .cab i{width:8px;height:8px;border-radius:2px;display:block}
+.col .cab .n{margin-left:auto;font-family:var(--mono);color:var(--texto3);font-size:.75rem}
+.lead{background:#fff;border:1px solid var(--linha);border-radius:8px;padding:9px 11px;cursor:pointer;
+  text-align:left;width:100%;display:flex;flex-direction:column;gap:2px}
+.lead:hover{border-color:var(--roxo);background:var(--roxo-claro)}
+.lead b{font-size:.82rem;color:var(--roxo-forte)}
+.lead small{font-size:.72rem;color:var(--texto2)}
+
+.recado{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:var(--roxo-forte);color:#fff;
+  padding:10px 18px;border-radius:99px;font-size:.83rem;font-weight:600;z-index:60;box-shadow:var(--sombra-forte);
+  max-width:calc(100% - 32px);text-align:center}
+.recado.ruim{background:var(--ruim)}
+.carregando{opacity:.55;pointer-events:none}
+.fim{margin-top:34px;padding-top:15px;border-top:1px solid var(--linha);color:var(--texto3);
+  font-size:.73rem;line-height:1.6;max-width:74ch}
+
+@media (max-width:820px){
+  main{padding:16px 14px 90px}
+  .anal{grid-template-columns:1fr;gap:12px}
+  .indice{position:static;flex-direction:row;overflow-x:auto;gap:5px;padding-bottom:4px}
+  .indice a{white-space:nowrap;border:1.5px solid var(--linha);border-radius:99px}
+  .cap{scroll-margin-top:118px}
+  .gaveta{width:100%;border-left:0}
+  .heroi .n{font-size:2rem}
+  .linha .valor{font-size:.88rem}
   nav.abas{top:69px}
 }
-@media(prefers-reduced-motion:reduce){*{transition:none!important}}
-
-/* selecao multipla e atuacao */
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-.chip{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--linha2);border-radius:20px;
-  padding:5px 11px;font:600 .74rem 'Segoe UI',sans-serif;cursor:pointer;background:#fff;color:var(--texto2);user-select:none}
-.chip input{margin:0;accent-color:var(--roxo)}
-.chip.on{background:var(--roxo-claro);border-color:var(--roxo);color:var(--roxo)}
-.chip.uf{font-family:var(--mono);font-size:.7rem;padding:4px 9px}
-.grupo-uf{margin-top:10px;padding-top:10px;border-top:1px dashed var(--linha2)}
-.grupo-uf .gt{font:700 .64rem 'Segoe UI',sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--texto3);margin-bottom:5px}
-td.sel,th.sel{width:34px;text-align:center;padding-left:10px;padding-right:0}
-.barra-sel{position:sticky;bottom:0;z-index:20;background:var(--roxo-forte);color:#fff;border-radius:12px;
-  padding:12px 16px;margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:.82rem}
-.barra-sel[hidden]{display:none!important}
-.barra-sel .bt{background:#fff;border-color:#fff}
-.dir-legenda{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:10px}
-.dir-item{display:flex;gap:9px;align-items:flex-start;font-size:.79rem;color:var(--texto2);line-height:1.5}
-.dir-item b{color:var(--roxo-forte);display:block}
-.duas{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.funil{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
-.fase{background:#fff;border:1.5px solid var(--roxo-borda);border-radius:14px;padding:14px 16px;
-  box-shadow:var(--sombra);cursor:pointer;text-align:left;border-top:4px solid var(--linha2)}
-.fase:hover{border-color:var(--roxo)}
-.fase[aria-pressed="true"]{border-color:var(--roxo);background:var(--roxo-claro)}
-.fase .n{font-size:1.7rem;font-weight:800;color:var(--roxo-forte);line-height:1.1}
-.fase .r{font:700 .72rem 'Segoe UI',sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--texto3)}
-.fase .a{font-size:.75rem;color:var(--texto2);margin-top:6px;line-height:1.45}
-.aviso-lead{background:#fef2f2;border:1.5px solid #fecaca;color:#991b1b;border-radius:12px;
-  padding:11px 14px;font-size:.8rem;line-height:1.5;margin-bottom:14px}
-@media(max-width:820px){.duas{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -211,287 +277,108 @@ td.sel,th.sel{width:34px;text-align:center;padding-left:10px;padding-right:0}
   <a href="/admin" class="btn-voltar">Voltar</a>
 </header>
 
-<nav class="abas" role="tablist">
-  <button class="aba" role="tab" aria-selected="true" data-p="geral">Visão geral</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="acao">Ação comercial</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="direcao">Direção</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="carteira">Concentração</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="regiao">Região</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="prev">Projeção</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="prospec">Prospecção</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="crm">CRM</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="clientes">Clientes</button>
-  <button class="aba" role="tab" aria-selected="false" data-p="dados">Dados</button>
-</nav>
+<nav class="abas" id="abas" role="tablist"></nav>
 
-<div class="container">
+<main>
 
-<div id="sem-dados" hidden>
-  <div class="faixa"><b>Ainda não há dados de venda.</b> Vá até a aba Dados e envie o arquivo de vendas em CSV, com as colunas Data, Nome e Valor separadas por ponto e vírgula.</div>
-</div>
-
-<div id="p-geral">
-  <div class="kpis" id="kpis"></div>
-  <section><h2>Faturamento mês a mês</h2>
-    <p class="nota">Cada barra soma as notas do mês. Passe o cursor para ver valor, pedidos e quantos clientes compraram.</p>
-    <div class="graf"><div id="g-mensal"></div></div></section>
-  <section><h2>O ano até aqui, comparado</h2>
-    <p class="nota" id="nota-ytd"></p>
-    <div class="graf"><div id="g-ytd"></div></div></section>
-  <section><h2>O ano da Piromax</h2>
-    <p class="nota">Receita somada de todos os anos da base em cada mês do calendário. Meses com menos anos de histórico aparecem em tom mais claro.</p>
-    <div class="graf"><div id="g-sazon"></div></div></section>
-</div>
-
-<div id="p-acao" hidden>
-  <div class="kpis" id="kpis-acao"></div>
-  <section><h2>Quem ligar para recuperar</h2>
-    <p class="nota" id="nota-acao"></p>
-    <div class="ctrls">
-      <select id="f-acao">
-        <option value="perda">Ordenar por quanto deixou de comprar</option>
-        <option value="atraso">Ordenar por tempo sem comprar</option>
-        <option value="receita">Ordenar por tamanho do cliente</option>
-      </select>
-      <span class="cont" id="cont-acao"></span>
+  <!-- ══ HOJE ══ -->
+  <section class="painel" id="p-hoje">
+    <p class="olho">Fila de hoje</p>
+    <h1>Quem precisa de contato hoje</h1>
+    <p class="lede">A regra é a rotina: classe A e B a cada 15 dias, classe C a cada 30, salvo quem você dispensar.
+      Quem está vencido há mais tempo vem primeiro; entre dois igualmente vencidos, o dinheiro em jogo decide.</p>
+    <div class="heroi">
+      <div><div class="n" id="h-n">—</div><div class="sub" id="h-n-sub"></div></div>
+      <div class="sub" id="h-sub"></div>
     </div>
-    <div class="tabwrap"><table id="t-acao"></table></div></section>
-
-  <section><h2>Quem ligar para crescer mais</h2>
-    <p class="nota">Mesmo critério, sinal invertido: clientes que já estão comprando acima da média dos anos anteriores. Vale tanto esforço comercial quanto a lista de cima, porque é onde a chance de resposta é maior. A coluna final mostra quanto ainda cabe até o melhor ano que esse cliente já fez.</p>
-    <div class="ctrls"><span class="cont" id="cont-alta"></span></div>
-    <div class="tabwrap"><table id="t-alta"></table></div></section>
-
-  <section><h2>Encerrados por decisão sua</h2>
-    <p class="nota">Clientes marcados como perdidos na ficha. Saem da fila e da projeção, mas continuam no histórico. O motivo que você escreveu aparece ao lado.</p>
-    <div class="tabwrap"><table id="t-encerrados"></table></div></section>
-</div>
-
-<div id="p-direcao" hidden>
-  <section><h2>Para onde cada cliente está indo</h2>
-    <p class="nota">A classificação compara o que o cliente comprou de 1º de janeiro até hoje com o que comprou na <b>mesma janela</b> dos anos anteriores. Nada é relativo aos outros clientes: cada um é medido contra ele mesmo.</p>
-    <div class="cartao" style="margin-bottom:14px">
-      <div class="dir-legenda" id="legenda-dir"></div>
-    </div>
-    <div class="graf"><h3>Clientes e receita por direção</h3>
-      <p class="cap">Toque numa faixa para ver os clientes dela.</p>
-      <div class="barras" id="b-dir"></div></div></section>
-
-  <section><h2>Ritmo de compra</h2>
-    <p class="nota">Atraso medido contra o intervalo típico de <b>cada</b> cliente, não contra um prazo fixo. Quem compra três vezes por ano não está atrasado aos 150 dias; quem compra toda semana está.</p>
-    <div class="graf"><div class="barras" id="b-ritmo"></div></div></section>
-
-  <section><h2>Perfil de calendário</h2>
-    <p class="nota">Onde cada cliente concentra as compras ao longo do ano. Define quando faz sentido procurá-lo.</p>
-    <div class="graf"><div class="barras" id="b-perfil"></div></div></section>
-
-  <section><h2>Frequência contra ticket</h2>
-    <p class="nota">Cada ponto é um cliente: eixo horizontal, número de pedidos; vertical, ticket médio. Canto superior esquerdo compra pouco e grande, inferior direito compra muito e pequeno. Toque num ponto para abrir a ficha.</p>
-    <div class="graf"><div id="g-disp"></div></div></section>
-</div>
-
-<div id="p-carteira" hidden>
-  <section><h2>Quem sustenta o faturamento</h2>
-    <p class="nota">Curva ABC. Classe A são os clientes que somam os primeiros 80% da receita, B vai até 95%, C é a cauda.</p>
-    <div class="kpis" id="kpis-abc"></div>
-    <div class="graf"><h3>Maiores clientes e receita acumulada</h3>
-      <p class="cap">Barras: receita do cliente no período. Linha: percentual acumulado da carteira.</p>
-      <div id="g-pareto"></div></div></section>
-  <section><h2>Clientes novos e quanto eles duram</h2>
-    <p class="nota" id="nota-coorte"></p>
-    <div class="tabwrap"><table id="t-coorte"></table></div></section>
-</div>
-
-<div id="p-regiao" hidden>
-  <div class="kpis" id="kpis-regiao"></div>
-  <section><h2>Onde estão e onde vendem</h2>
-    <p class="nota">Um cliente pode ter sede em Minas e vender no Nordeste inteiro. Por isso são duas coisas separadas: a <b>sede</b> é o estado onde ele está, a <b>área de atuação</b> é onde ele revende. As duas tabelas abaixo somam a mesma receita de formas diferentes, e a de atuação conta o cliente em cada região que ele cobre.</p>
-    <div class="duas">
-      <div class="graf"><h3>Por sede</h3><p class="cap">Estado onde o cliente está instalado.</p>
-        <div class="barras" id="b-sede"></div></div>
-      <div class="graf"><h3>Por área de atuação</h3><p class="cap">Onde o cliente revende. Um cliente que cobre duas regiões conta nas duas.</p>
-        <div class="barras" id="b-atuacao"></div></div>
-    </div>
+    <div class="fichas" id="h-fichas"></div>
+    <div class="fila" id="h-fila"></div>
+    <button class="mais" id="h-mais" hidden>Mostrar mais</button>
+    <p class="nota" id="h-nota"></p>
   </section>
-  <section><h2>Definir a área de atuação de vários clientes</h2>
-    <p class="nota">Filtre, marque os clientes e aplique a área de uma vez. Substituir troca o que estiver lá; acrescentar mantém o que já existe e soma.</p>
-    <div class="ctrls">
-      <input type="search" id="q-reg" placeholder="Buscar cliente" aria-label="Buscar cliente">
-      <select id="f-reg-uf" aria-label="Filtrar por sede"><option value="">Todas as sedes</option></select>
-      <select id="f-reg-at" aria-label="Filtrar por atuação"><option value="">Toda atuação</option><option value="__vazio">Sem atuação definida</option></select>
-      <span class="cont" id="cont-reg"></span>
-    </div>
-    <div class="tabwrap"><table id="t-reg"></table></div>
-    <div class="barra-sel" id="barra-sel" hidden>
-      <span id="sel-info"></span>
-      <button class="bt sm" id="sel-limpar">Limpar seleção</button>
-      <button class="bt sm p" id="sel-aplicar">Definir área de atuação</button>
-    </div>
-    <div class="cartao" id="painel-atuacao" hidden style="margin-top:14px">
-      <h3 style="font-size:.86rem;font-weight:700;color:var(--roxo-forte);margin-bottom:4px">Área de atuação</h3>
-      <p class="nota" style="margin-bottom:10px" id="atuacao-alvo"></p>
-      <div class="chips" id="chips-regiao"></div>
-      <div class="grupo-uf"><div class="gt">Ou estados específicos</div><div class="chips" id="chips-uf"></div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
-        <button class="bt p" id="at-substituir">Substituir</button>
-        <button class="bt" id="at-acrescentar">Acrescentar</button>
-        <button class="bt" id="at-cancelar">Cancelar</button>
+
+  <!-- ══ REGISTROS ══ -->
+  <section class="painel" id="p-registros" hidden>
+    <p class="olho">Registros</p>
+    <h1>Todos os clientes, uma lista só</h1>
+    <p class="lede">As visões são filtros salvos, não abas novas. Cada cliente tem endereço próprio e abre aqui mesmo.</p>
+    <div class="fichas" id="r-views" style="margin-top:14px"></div>
+    <div class="barra">
+      <div class="busca">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="color:var(--texto3);flex:0 0 15px"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+        <label for="r-busca" style="position:absolute;left:-9999px">Buscar cliente</label>
+        <input id="r-busca" type="search" placeholder="Buscar por nome…" autocomplete="off">
       </div>
-      <div id="res-atuacao"></div>
+      <span class="mono" id="r-cnt" style="color:var(--texto3);font-size:.76rem"></span>
     </div>
-  </section>
-</div>
-
-<div id="p-prev" hidden>
-  <div class="faixa" id="aviso-prev"></div>
-  <div class="kpis" id="kpis-prev"></div>
-  <section><h2>O que falta do ano, mês a mês</h2>
-    <p class="nota" id="nota-prev-emp"></p>
-    <div class="tabwrap"><table id="t-prev-emp"></table></div>
-    <div class="graf" style="margin-top:14px"><div id="g-prev"></div></div></section>
-  <section><h2>O quanto esse método errou no passado</h2>
-    <p class="nota">O mesmo método aplicado a todos os trimestres já encerrados que têm dois anos de histórico, usando apenas os dados anteriores a cada um. Nenhuma janela foi escolhida a dedo.</p>
-    <div class="tabwrap"><table id="t-backtest"></table></div>
-    <p class="nota" style="margin-top:10px" id="leitura-bt"></p></section>
-  <section><h2>Projeção por cliente, mês a mês</h2>
-    <p class="nota" id="nota-prev-cli"></p>
-    <div class="ctrls">
-      <input type="search" id="q-prev" placeholder="Buscar cliente" aria-label="Buscar cliente">
-      <select id="f-conf"><option value="">Todas as confianças</option>
-        <option value="boa">Só confiança boa</option><option value="razoavel">Boa e razoável</option></select>
-      <span class="cont" id="cont-prev"></span>
-    </div>
-    <div class="tabwrap"><table id="t-prev"></table></div></section>
-</div>
-
-<div id="p-prospec" hidden>
-  <div class="kpis" id="kpis-prospec"></div>
-
-  <section><h2>Funil</h2>
-    <p class="nota">Toque numa etapa para filtrar a lista abaixo. Um lead entra como <b>novo</b>, vira <b>em contato</b> quando alguém fala com ele, e sai como <b>ganhou</b> ou <b>perdido</b>. Perdido sempre com o motivo escrito, senão a lista vira cemitério sem aprendizado.</p>
-    <div class="funil" id="funil"></div>
+    <div id="r-lote" hidden style="margin-bottom:11px"></div>
+    <div class="tw"><table id="r-tab"><thead><tr>
+      <th class="marc"><input type="checkbox" id="r-todos" aria-label="Marcar todos"></th>
+      <th><button type="button" data-s="nome">Cliente</button></th>
+      <th class="num"><button type="button" data-s="receita">Receita total</button></th>
+      <th class="num"><button type="button" data-s="var_ytd_pct">No ano vs. média</button></th>
+      <th>Situação</th>
+      <th><button type="button" data-s="contato_atraso">Rotina de contato</button></th>
+      <th class="num"><button type="button" data-s="recencia">Última compra</button></th>
+      <th>Ritmo no ano</th>
+    </tr></thead><tbody id="r-corpo"></tbody></table></div>
+    <p class="nota">Quem ainda não é cliente vive em <b>Prospecção</b>, com funil próprio.
+      Assim que um lead é ganho ele aparece aqui e entra na mesma rotina de contato.</p>
   </section>
 
-  <section><h2>Leads</h2>
-    <div id="aviso-ja-cliente"></div>
-    <div class="ctrls">
-      <input type="search" id="q-lead" placeholder="Buscar por nome, cidade ou contato" aria-label="Buscar lead">
-      <select id="f-lead-uf" aria-label="Estado"><option value="">Todos os estados</option></select>
-      <select id="f-lead-ord" aria-label="Ordenar">
-        <option value="prazo">Próximo passo primeiro</option>
-        <option value="nome">Nome</option>
-        <option value="novo">Mais recentes</option>
-      </select>
-      <span class="cont" id="cont-lead"></span>
-    </div>
-    <div class="tabwrap"><table id="t-lead"></table></div>
-    <div class="barra-sel" id="barra-lead" hidden>
-      <span id="lead-info"></span>
-      <button class="bt sm" id="lead-limpar">Limpar seleção</button>
-      <select id="lead-etapa-lote" aria-label="Mover para"></select>
-      <button class="bt sm p" id="lead-mover">Mover</button>
+  <!-- ══ PROSPECÇÃO ══ -->
+  <section class="painel" id="p-prospeccao" hidden>
+    <p class="olho">Prospecção</p>
+    <h1>Quem ainda não é cliente</h1>
+    <p class="lede">Funil próprio, separado da carteira, porque a conversa é outra.</p>
+    <div id="pr-corpo" style="margin-top:16px"></div>
+  </section>
+
+  <!-- ══ ANÁLISE ══ -->
+  <section class="painel" id="p-analise" hidden>
+    <p class="olho">Análise</p>
+    <h1>O relatório do mês, numa página</h1>
+    <p class="lede">Toda comparação de ano usa a mesma janela dos dois lados: 1º de janeiro até o dia da última venda carregada.</p>
+    <div class="anal" style="margin-top:16px">
+      <nav class="indice" aria-label="Capítulos">
+        <a href="#/analise/visao">Visão geral</a>
+        <a href="#/analise/anoaano">Ano a ano</a>
+        <a href="#/analise/direcao">Direção</a>
+        <a href="#/analise/concentracao">Concentração</a>
+        <a href="#/analise/regiao">Região</a>
+        <a href="#/analise/projecao">Projeção</a>
+      </nav>
+      <div id="a-corpo"></div>
     </div>
   </section>
 
-  <section><h2>Importar leads</h2>
-    <p class="nota">CSV com cabeçalho. O sistema procura as colunas <b>pelo nome</b>, em qualquer ordem: Nome (ou Empresa, ou Razão Social), Cidade, Estado, Contato, Telefone e E-mail. Só o nome é obrigatório. <b>Nada é apagado</b>: importar a mesma lista de novo não duplica e não reseta a etapa de quem já está em andamento.</p>
-    <div class="cartao">
-      <input type="file" id="arq-lead" accept=".csv,text/csv">
-      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="bt" id="bt-lead-previa">Conferir o que vai entrar</button>
-        <button class="bt p" id="bt-lead-upload" disabled>Gravar</button>
-      </div>
-      <div id="res-lead"></div>
-    </div>
-  </section>
-</div>
-
-<div id="p-crm" hidden>
-  <div class="kpis" id="kpis-crm"></div>
-  <section><h2>Fila de trabalho</h2>
-    <p class="nota">Tarefas em aberto, mais próximo do prazo primeiro.</p>
-    <div class="tabwrap"><table id="t-fila"></table></div></section>
-  <section><h2>Alertas sem contato registrado</h2>
-    <p class="nota">Clientes da aba de ação comercial, de queda ou de crescimento, que ainda não têm interação nem tarefa no CRM.</p>
-    <div class="tabwrap"><table id="t-descoberto"></table></div></section>
-  <section><h2>Últimas interações</h2>
-    <div class="tabwrap"><table id="t-inter"></table></div></section>
-</div>
-
-<div id="p-clientes" hidden>
-  <section><h2>Carteira completa</h2>
-    <p class="nota">Toque em qualquer linha para abrir a ficha, com cadastro, motivo do status, tarefas, contatos e histórico.</p>
-    <div class="ctrls">
-      <input type="search" id="q" placeholder="Buscar cliente" aria-label="Buscar cliente">
-      <select id="f-dir" aria-label="Direção"><option value="">Todas as direções</option></select>
-      <select id="f-cls" aria-label="Classe"><option value="">Todas as classes</option>
-        <option value="A">Classe A</option><option value="B">Classe B</option><option value="C">Classe C</option></select>
-      <select id="f-uf" aria-label="Sede"><option value="">Todas as sedes</option></select>
-      <select id="f-sit" aria-label="Situação"><option value="">Todas as situações</option>
-        <option value="ativo">Ativos</option><option value="pausado">Pausados</option><option value="perdido">Perdidos</option></select>
-      <span class="cont" id="cont-cli"></span>
-    </div>
-    <div class="tabwrap"><table id="t-cli"></table></div></section>
-</div>
-
-<div id="p-dados" hidden>
-  <section><h2>Enviar as vendas</h2>
-    <p class="nota">Arquivo CSV com três colunas: data, nome do cliente e valor, separadas por ponto e vírgula. <b>Nada é apagado.</b> O sistema compara com o que já existe e grava apenas as notas novas, então você pode enviar o histórico inteiro, só o mês, ou o mesmo arquivo duas vezes, que o resultado é o mesmo. Datas aceitas: <code>18/09/2026</code> ou <code>2026-09-18</code>.</p>
-    <div class="cartao">
-      <input type="file" name="arquivo" id="arquivo" accept=".csv,text/csv">
-      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="bt" id="bt-previa">Conferir o que vai entrar</button>
-        <button class="bt p" id="bt-upload" disabled>Gravar</button>
-      </div>
-      <div id="res-upload"></div>
-    </div>
+  <!-- ══ DADOS ══ -->
+  <section class="painel" id="p-dados" hidden>
+    <p class="olho">Dados</p>
+    <h1>De onde vêm os números</h1>
+    <p class="lede">Carregar, unificar e preencher. Ninguém entra aqui no dia a dia, e é por isso que sai da frente.</p>
+    <div id="d-corpo" style="margin-top:16px"></div>
   </section>
 
-  <section><h2>Clientes duplicados</h2>
-    <p class="nota">O mesmo cliente às vezes aparece com dois nomes, por acento ou por troca de razão social. Aqui ficam os pares que o sistema encontrou sozinho e as unificações já feitas. Unificar soma o histórico dos dois, leva junto as tarefas e contatos, e é reversível.</p>
-    <div id="candidatos"></div>
-    <div class="cartao" style="margin-top:14px">
-      <h3 style="font-size:.86rem;font-weight:700;color:var(--roxo-forte);margin-bottom:10px">Unificar manualmente</h3>
-      <div class="campos" style="grid-template-columns:1fr 1fr">
-        <div class="campo"><label for="al-de">Nome que vai deixar de existir</label><select id="al-de"></select></div>
-        <div class="campo"><label for="al-para">Nome que fica</label><select id="al-para"></select></div>
-      </div>
-      <div style="margin-top:12px"><button class="bt p" id="bt-alias">Unificar</button></div>
-      <div id="lista-alias" style="margin-top:16px"></div>
-    </div>
-  </section>
+  <p class="fim" id="rodape"></p>
+</main>
 
-  <section><h2>Preencher cidade e sede em lote</h2>
-    <p class="nota">Cole uma linha por cliente no formato <code>nome;cidade;UF</code>. O nome pode ser o atual ou qualquer nome antigo de cliente unificado. A área de atuação se define na aba Região.</p>
-    <div class="cartao">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="bt" id="bt-copiar">Copiar a lista de clientes</button>
-        <button class="bt" id="bt-conferir">Conferir</button>
-        <button class="bt p" id="bt-gravar" disabled>Gravar</button>
-      </div>
-      <textarea id="txt-lote" rows="7" placeholder="TOTAL FIRE;Santo Antônio do Monte;MG"></textarea>
-      <div id="res-lote"></div>
-    </div>
-  </section>
-</div>
-
-</div>
-
-<div id="dica" role="status" aria-live="polite"></div>
-<div id="gaveta" hidden><div class="folha" id="folha" role="dialog" aria-modal="true" aria-label="Ficha do cliente"></div></div>
+<div id="tela"></div>
+<input type="file" id="arq-vendas" accept=".csv,.txt" hidden>
+<input type="file" id="arq-leads" accept=".csv,.txt" hidden>
 
 <script>
-const D = {{ dados_json|safe }};
-const FICHA = {{ fichas_json|safe }};
-let INTER = {{ inter_json|safe }};
-let TAREFAS = {{ tarefas_json|safe }};
-const ALIASES = {{ aliases_json|safe }};
-const CANDIDATOS = {{ candidatos_json|safe }};
-const REGIOES = {{ regioes_json|safe }};
-const PROSPEC = {{ prospec_json|safe }};
-const ETAPAS = {{ etapas_json|safe }};
-const HOJE = "{{ hoje }}";
+var D = {{ dados_json|safe }};
+var FICHA = {{ fichas_json|safe }};
+var INTER = {{ inter_json|safe }};
+var TAREFAS = {{ tarefas_json|safe }};
+var ALIASES = {{ aliases_json|safe }};
+var CANDIDATOS = {{ candidatos_json|safe }};
+var REGIOES = {{ regioes_json|safe }};
+var PROSPEC = {{ prospec_json|safe }};
+var ETAPAS = {{ etapas_json|safe }};
+var HOJE = "{{ hoje }}";
 </script>
-<script src="/static/carteira.js"></script>
+<script src="/static/carteira.js?v=5"></script>
 </body>
 </html>
