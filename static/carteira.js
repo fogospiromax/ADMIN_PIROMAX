@@ -587,9 +587,9 @@ function pintarRegistros() {
       + '<td class="num extra-col ' + (v === null ? '' : (v >= 0 ? 'pos' : 'neg')) + '">'
         + (v === null ? '—' : pct(v)) + '</td>'
       + '<td class="num extra-col">' + cheio(c.ticket).replace('R$ ', '') + '</td>'
-      + '<td class="num extra-col">' + c.compras + '</td>'
+      + '<td class="num extra-col">' + dia(c.ultima) + '</td>'
       + '<td class="num extra-col">' + dia(c.primeira) + '</td>'
-      + '<td class="num">' + dia(c.ultima) + '</td>'
+      + '<td class="num">' + c.compras + '</td>'
       + '<td>' + (ult ? dia(ult.data) : 'Sem registro') + '<small class="celula-sub">' + esc(c.contato_rotulo) + '</small></td>'
       + '<td class="proxima-col">' + (proximaTarefa(c.id) ? esc(proximaTarefa(c.id).titulo) + '<small class="celula-sub">' + dia(proximaTarefa(c.id).prazo) + '</small>' : 'Sem ação agendada') + '</td></tr>';
   }).join('') : '<tr><td colspan="14"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
@@ -669,43 +669,46 @@ function pintarLote() {
   var box = $('r-lote');
   box.hidden = !ids.length;
   if (!ids.length) return;
-  box.innerHTML = '<div class="cartao" style="padding:12px 14px">'
-    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
-    + '<b style="font-size:.85rem;color:var(--roxo-forte)">' + ids.length + ' marcado(s)</b>'
-    + '<select id="lt-dono" aria-label="Responsável para os clientes marcados" class="filtro"><option value="">Atribuir responsável…</option>'
+  box.innerHTML = '<div class="cartao lote-cartao">'
+    + '<div class="lote-cabecalho"><div><p class="olho">Edição em lote</p>'
+    + '<h3>' + ids.length + (ids.length === 1 ? ' cliente selecionado' : ' clientes selecionados') + '</h3></div>'
+    + '<button type="button" id="lt-nada" class="lote-limpar">Limpar seleção</button></div>'
+    + '<div class="lote-distribuicao"><label for="lt-dono">Distribuir para</label>'
+    + '<select id="lt-dono" class="filtro"><option value="">Escolha um responsável…</option>'
     + USUARIOS_CRM.map(function(u){return '<option value="'+u[0]+'">'+u[1]+'</option>';}).join('')
     + '<option value="__sem">Devolver à distribuição</option></select>'
-    + '<button type="button" id="lt-atribuir" class="btn-ok">Atribuir</button>'
-    + '<select id="lt-uf" aria-label="Estado da sede" style="font:inherit;font-size:.82rem;padding:6px 9px;border:1.5px solid var(--linha);border-radius:8px">'
+    + '<button type="button" id="lt-atribuir" class="btn-ok">Atribuir</button></div>'
+    + '<div class="lote-separador"><span>Atualizar dados dos selecionados</span></div>'
+    + '<div class="lote-campos"><div class="lote-campo"><label for="lt-uf">Estado da sede</label><select id="lt-uf" class="filtro">'
       + '<option value="">Estado da sede…</option>' + UFS.map(function (u) { return '<option>' + u + '</option>'; }).join('')
-    + '</select>'
-    + '<select id="lt-at" aria-label="Área de atuação" style="font:inherit;font-size:.82rem;padding:6px 9px;border:1.5px solid var(--linha);border-radius:8px">'
+    + '</select></div>'
+    + '<div class="lote-campo"><label for="lt-at">Área de atuação</label><select id="lt-at" class="filtro">'
       + '<option value="">Área de atuação…</option>'
       + REGIOES.map(function (r) { return '<option value="' + r[0] + '">' + r[1] + '</option>'; }).join('')
       + '<option value="__todas">Brasil inteiro</option>'
-    + '</select>'
-    + '<select id="lt-cad" aria-label="Cadência de contato" style="font:inherit;font-size:.82rem;padding:6px 9px;border:1.5px solid var(--linha);border-radius:8px">'
+    + '</select></div>'
+    + '<div class="lote-campo"><label for="lt-cad">Rotina de contato</label><select id="lt-cad" class="filtro">'
       + '<option value="">Rotina de contato…</option><option value="15">A cada 15 dias</option>'
       + '<option value="30">A cada 30 dias</option><option value="60">A cada 60 dias</option>'
       + '<option value="0">Voltar ao padrão da classe</option><option value="off">Dispensar da rotina</option>'
-    + '</select>'
-    + '<select id="lt-tipo" aria-label="Tipo de relação" style="font:inherit;font-size:.82rem;padding:6px 9px;border:1.5px solid var(--linha);border-radius:8px">'
+    + '</select></div>'
+    + '<div class="lote-campo"><label for="lt-tipo">Tipo de relação</label><select id="lt-tipo" class="filtro">'
       + '<option value="">Tipo de relação…</option>'
       + (D.tipos || []).map(function (t) { return '<option value="' + t[0] + '">' + t[1] + '</option>'; }).join('')
-    + '</select>'
-    + '<select id="lt-cman" aria-label="Classificação na fila" style="font:inherit;font-size:.82rem;padding:6px 9px;border:1.5px solid var(--linha);border-radius:8px">'
+    + '</select></div>'
+    + '<div class="lote-campo"><label for="lt-cman">Classificação na fila</label><select id="lt-cman" class="filtro">'
       + '<option value="">Classificação na fila…</option><option value="__auto">Deixar o sistema decidir</option>'
       + (D.motivos || []).map(function (m) { return '<option value="' + m[0] + '">' + m[1] + '</option>'; }).join('')
-    + '</select>'
-    + '<span class="acoes">'
+    + '</select></div></div>'
+    + '<div class="acoes lote-acoes">'
       + '<button type="button" id="lt-prio" class="pri">★ Prioridade</button>'
       + '<button type="button" id="lt-semprio">Tirar prioridade</button>'
-      + '<button type="button" id="lt-ok">Aplicar os campos acima</button>'
+      + '<button type="button" id="lt-ok">Aplicar dados</button>'
       + (ids.length > 1 ? '<button type="button" id="lt-uni">Unificar em um só</button>' : '')
-      + '<button type="button" id="lt-nada">Limpar seleção</button></span></div>'
+      + '</div>'
     + (estado.unificando ? painelUnificar(ids) : '')
-    + '<p class="nota" style="margin-top:7px">Só os campos preenchidos são gravados. '
-      + 'O resto de cada ficha fica como está.</p></div>';
+    + '<p class="nota lote-nota">Atribuição e atualização de dados são salvas separadamente. '
+      + 'Só os dados escolhidos são alterados; o resto de cada ficha fica como está.</p></div>';
 }
 var UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI',
            'PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];

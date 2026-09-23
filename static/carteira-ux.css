@@ -257,3 +257,35 @@ details.saiba[open] summary::before{transform:rotate(90deg)}
 .pedido-situacao.pronto{border-color:#cfe6da;background:#f4fbf6;color:#28754b}
 .pedido-metadata{margin-top:5px;color:var(--texto2);font-size:.76rem;line-height:1.45}
 @media(max-width:600px){.usuario-selo{padding:6px 8px;font-size:.69rem}.distribuicao-aviso{display:block}.owner-edit select{min-width:112px}}
+
+/* Clientes: busca e filtros com a mesma altura e proporções previsíveis. */
+#p-registros .barra{display:grid;grid-template-columns:minmax(260px,1.45fr) minmax(170px,1fr) minmax(180px,1fr) auto;gap:10px;align-items:stretch}
+#p-registros .barra .busca,#p-registros .barra .filtro{width:100%;max-width:none;min-width:0;min-height:44px}
+#p-registros .barra .busca{padding-inline:13px}
+#p-registros .barra .filtro{padding-inline:12px;font-size:.84rem}
+#r-cnt{display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;min-width:76px}
+
+/* Edição em lote: uma linha para distribuir, outra com campos iguais, outra para ações. */
+.lote-cartao{padding:18px 20px}
+.lote-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lote-cabecalho .olho{margin:0 0 4px}
+.lote-cabecalho h3{font-size:.96rem}
+.lote-limpar{border:0;background:transparent;color:var(--texto2);font-size:.79rem;font-weight:600;padding:8px 0;cursor:pointer;white-space:nowrap}
+.lote-limpar:hover{color:var(--roxo)}
+.lote-distribuicao{display:grid;grid-template-columns:minmax(220px,360px) auto;gap:7px 10px;align-items:end;width:max-content;max-width:100%;margin-top:18px}
+.lote-distribuicao label{grid-column:1/-1;font-size:.73rem;font-weight:650;color:var(--texto2)}
+.lote-distribuicao .filtro{width:100%;max-width:none;min-width:0;min-height:42px}
+.lote-distribuicao .btn-ok{min-height:42px;padding-inline:16px;font-size:.82rem}
+.lote-separador{border-top:1px solid var(--linha2);margin-top:18px;padding-top:16px;color:var(--texto2);font-size:.73rem;font-weight:650}
+.lote-campos{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:11px}
+.lote-campo{min-width:0}
+.lote-campo label{display:block;margin-bottom:6px;color:var(--texto2);font-size:.72rem;font-weight:650}
+.lote-campo .filtro{width:100%;max-width:none;min-width:0;min-height:42px;font-size:.81rem}
+.lote-acoes{border-top:1px solid var(--linha2);margin-top:17px;padding-top:16px;gap:8px}
+.lote-acoes button{min-height:40px}
+#lt-ok{margin-left:auto}
+.lote-nota{max-width:none;margin-top:10px}
+@media(max-width:1200px){.lote-campos{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:900px){#p-registros .barra{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto}#p-registros .barra .busca{grid-column:1/-1}}
+@media(max-width:700px){.lote-campos{grid-template-columns:repeat(2,minmax(0,1fr))}#p-registros .barra{grid-template-columns:repeat(2,minmax(0,1fr))}#r-cnt{grid-column:1/-1}#lt-ok{margin-left:0}}
+@media(max-width:480px){.lote-cartao{padding:16px}.lote-campos{grid-template-columns:1fr}.lote-distribuicao{grid-template-columns:minmax(0,1fr) auto;width:100%}#p-registros .barra{grid-template-columns:1fr}#p-registros .barra .busca,#r-cnt{grid-column:1}#r-cnt{justify-content:flex-start}.lote-cabecalho{align-items:flex-start}}
