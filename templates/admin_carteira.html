@@ -421,12 +421,12 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
       <th class="extra-col">Cidade / UF</th>
       <th class="extra-col">Área de atuação</th>
       <th>Saúde comercial</th>
-      <th class="num extra-col"><button type="button" data-s="receita">Receita total</button></th>
+      <th class="num extra-col"><button type="button" data-s="compras">Quantidade de compras</button></th>
       <th class="num extra-col"><button type="button" data-s="var_ytd_pct">No ano vs. média</button></th>
       <th class="num extra-col"><button type="button" data-s="ticket">Pedido médio</button></th>
       <th class="num extra-col"><button type="button" data-s="ultima">Última compra</button></th>
       <th class="num extra-col"><button type="button" data-s="primeira">Cliente desde</button></th>
-      <th class="num"><button type="button" data-s="compras">Total de compras</button></th><th>Último registro / atendimento</th><th>Próxima ação</th>
+      <th class="num"><button type="button" data-s="receita">Valor total comprado</button></th><th>Último registro / atendimento</th><th>Próxima ação</th>
     </tr></thead><tbody id="r-corpo"></tbody></table></div>
     <p class="nota">Clique no cliente para abrir a ficha. Em “Mostrar detalhes”, cidade e estado podem ser editados na tabela e são salvos automaticamente.</p>
     <p class="nota">Leads ficam em <b>Prospecção</b>. Ao ganhar uma negociação, importe a venda e vincule o lead ao cliente correspondente.</p>
@@ -486,6 +486,6 @@ var PESSOAL = {{ pessoal_json|safe }};
 var ETAPAS = {{ etapas_json|safe }};
 var HOJE = "{{ hoje }}";
 </script>
-<script src="/static/carteira.js?v=14"></script>
+<script src="/static/carteira.js?v=15"></script>
 </body>
 </html>
