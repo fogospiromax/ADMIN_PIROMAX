@@ -1,0 +1,45 @@
+"""Gera senhas iniciais e hashes para o Render fora do repositório da aplicação.
+
+Uso: python3 scripts/gerar_acessos.py /caminho/privado/para/saida
+"""
+
+import os
+import secrets
+import sys
+from pathlib import Path
+
+APP = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP))
+from crm_auth import USUARIOS, criar_hash, variavel_hash
+
+
+def gravar_privado(caminho, conteudo):
+    descritor = os.open(str(caminho), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descritor, 'w', encoding='utf-8') as arquivo:
+        arquivo.write(conteudo)
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise SystemExit('Informe uma pasta privada fora da APP para os dois arquivos.')
+    destino = Path(sys.argv[1]).expanduser().resolve()
+    if destino == APP or APP in destino.parents:
+        raise SystemExit('A pasta de saída precisa ficar fora da APP para não subir as senhas ao GitHub.')
+    destino.mkdir(parents=True, exist_ok=True, mode=0o700)
+    senhas = {usuario: secrets.token_urlsafe(20) for usuario in USUARIOS}
+    texto_senhas = 'Acessos Piromax — guardar em local privado; não enviar ao GitHub.\n\n'
+    texto_senhas += ''.join(f'{USUARIOS[u]}\nUsuário: {u}\nSenha: {senhas[u]}\n\n' for u in USUARIOS)
+    texto_ambiente = '# Variáveis para configurar no Render; não enviar ao GitHub.\n'
+    texto_ambiente += 'SECRET_KEY=' + secrets.token_hex(32) + '\n'
+    texto_ambiente += ''.join(variavel_hash(u) + '=' + criar_hash(senhas[u]) + '\n' for u in USUARIOS)
+    arquivo_senhas = destino / 'piromax-senhas.txt'
+    arquivo_ambiente = destino / 'piromax-render.env'
+    if arquivo_senhas.exists() or arquivo_ambiente.exists():
+        raise SystemExit('Arquivos de acesso já existem nessa pasta. Escolha outra pasta para evitar sobrescrever.')
+    gravar_privado(arquivo_senhas, texto_senhas)
+    gravar_privado(arquivo_ambiente, texto_ambiente)
+    print('Arquivos privados criados em:', destino)
+
+
+if __name__ == '__main__':
+    main()
