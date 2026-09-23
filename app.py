@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from crm_auth import USUARIOS, autenticar, sessao_valida, variavel_hash, versao_credencial
+from crm_auth import USUARIOS, autenticar, sessao_valida, variavel_senha, versao_credencial
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
@@ -213,7 +213,7 @@ def get_tasks(date_str):
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not sessao_valida(session):
+        if not sessao_valida(session, app.secret_key):
             session.clear()
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
@@ -221,7 +221,7 @@ def login_required(f):
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
-    if request.method == 'GET' and sessao_valida(session):
+    if request.method == 'GET' and sessao_valida(session, app.secret_key):
         return redirect(url_for('admin_view'))
     error = None
     if request.method == 'POST':
@@ -231,7 +231,8 @@ def admin_login():
         if usuario:
             session.clear()
             session['usuario_id'] = usuario
-            session['credencial_versao'] = versao_credencial(os.environ[variavel_hash(usuario)])
+            session['credencial_versao'] = versao_credencial(
+                usuario, os.environ[variavel_senha(usuario)], app.secret_key)
             session.permanent = True
             return redirect(url_for('admin_view'))
         else:
@@ -473,7 +474,7 @@ def admin_view():
                            pendentes_count=pendentes_count,
                            pedidos_pendentes_count=pedidos_pendentes_count,
                            melhorias_pendentes_count=melhorias_count,
-                           usuario_nome=USUARIOS[sessao_valida(session)])
+                           usuario_nome=USUARIOS[sessao_valida(session, app.secret_key)])
 
 # ── Gestor / Admin — Produção por Semana ──────────────────────────────────────
 @app.route('/admin/producao')
@@ -1196,7 +1197,7 @@ def _carteira_dados():
         dados['meta']['ultima_importacao'] = ultima_importacao
     prospec = carteira.analisar_leads(leads, dados, hoje)
     pessoal = carteira.visao_pessoal(dados, leads, tarefas, inter,
-                                     sessao_valida(session), hoje.isoformat())
+                                     sessao_valida(session, app.secret_key), hoje.isoformat())
     return dados, fichas, inter, tarefas, aliases, prospec, pessoal
 
 
@@ -1218,8 +1219,8 @@ def admin_carteira_view():
         etapas_json=_json.dumps(carteira.ETAPAS, ensure_ascii=False),
         regioes_json=_json.dumps([[k, v[0], v[1]] for k, v in carteira.REGIOES.items()], ensure_ascii=False),
         hoje=today_sp(),
-        usuario_id=sessao_valida(session),
-        usuario_nome=USUARIOS[sessao_valida(session)],
+        usuario_id=sessao_valida(session, app.secret_key),
+        usuario_nome=USUARIOS[sessao_valida(session, app.secret_key)],
     )
 
 
@@ -1541,7 +1542,7 @@ def admin_carteira_interacao_add():
     novo = str(uuid.uuid4())
     conn = get_db()
     cur = conn.cursor()
-    usuario = sessao_valida(session)
+    usuario = sessao_valida(session, app.secret_key)
     cur.execute('INSERT INTO carteira_interacao '
                 '(id, cliente_id, data, tipo, resumo, responsavel, usuario_id, criado_em) '
                 'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
@@ -1568,7 +1569,7 @@ def admin_carteira_contato():
         return jsonify({'success': False, 'erro': str(erro)}), 400
     except TypeError:
         return jsonify({'success': False, 'erro': 'Confira os campos e as datas.'}), 400
-    usuario = sessao_valida(session)
+    usuario = sessao_valida(session, app.secret_key)
     atividade['responsavel'] = USUARIOS[usuario]
     conn = get_db()
     cur = conn.cursor()
@@ -1856,7 +1857,7 @@ def admin_lead_novo():
           (d.get('instagram') or '')[:300], (d.get('obs') or '')[:2000],
           (d.get('proximo') or '')[:300], (d.get('proximo_em') or None),
           bool(d.get('revenda')), (d.get('revenda_de') or '')[:200],
-          'cadastrado à mão', agora, agora, sessao_valida(session)))
+          'cadastrado à mão', agora, agora, sessao_valida(session, app.secret_key)))
     conn.commit()
     cur.close()
     conn.close()
@@ -1880,7 +1881,7 @@ def admin_lead_concluir_retorno():
             return jsonify({'success': False, 'erro': 'Este retorno já foi alterado. Atualize a página.'}), 409
         cur.execute("UPDATE carteira_lead SET proximo='', proximo_em=NULL, atualizado_em=%s WHERE id=%s",
                     (now_sp_str(), lid))
-        usuario = sessao_valida(session)
+        usuario = sessao_valida(session, app.secret_key)
         cur.execute('INSERT INTO carteira_tarefa (id, cliente_id, titulo, prazo, feita, concluido_em, '
                     'responsavel, criado_em) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                     (str(uuid.uuid4()), lid, titulo or 'Retorno combinado', prazo or None, True,
