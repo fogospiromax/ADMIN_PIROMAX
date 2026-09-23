@@ -150,7 +150,8 @@ class EndpointTests(unittest.TestCase):
                    request=SimpleNamespace(get_json=lambda **kw: self.body),
                    jsonify=lambda value: value, get_db=lambda: self.conn,
                    today_sp=lambda: TODAY, now_sp_str=lambda: TODAY+' 09:00:00',
-                   session={'usuario_id':'fernando'}, sessao_valida=lambda s:'fernando',
+                   session={'usuario_id':'fernando'}, sessao_valida=lambda s, segredo:'fernando',
+                   app=SimpleNamespace(secret_key='segredo-ficticio'),
                    USUARIOS={'flavia':'Flávia','tiago':'Tiago','fernando':'Fernando'})
         functions = ['admin_carteira_contato', 'admin_carteira_tarefa_add',
                      'admin_carteira_tarefa_toggle', 'admin_lead_concluir_retorno',
