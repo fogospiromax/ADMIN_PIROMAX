@@ -1,4 +1,5 @@
 import os
+import secrets
 import uuid
 import smtplib
 from email.mime.text import MIMEText
@@ -9,9 +10,13 @@ from zoneinfo import ZoneInfo
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from crm_auth import USUARIOS, autenticar, sessao_valida, variavel_hash, versao_credencial
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'fogospiromax-dev-secret')
+app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
+app.permanent_session_lifetime = timedelta(hours=12)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 SAO_PAULO = ZoneInfo('America/Sao_Paulo')
 
@@ -208,21 +213,26 @@ def get_tasks(date_str):
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('admin_logged_in'):
+        if not sessao_valida(session):
+            session.clear()
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
+    if request.method == 'GET' and sessao_valida(session):
+        return redirect(url_for('admin_view'))
     error = None
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
-        admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
-        admin_password = os.environ.get('ADMIN_PASSWORD', 'fogos2025')
-        if username == admin_username and password == admin_password:
-            session['admin_logged_in'] = True
+        usuario = autenticar(username, password)
+        if usuario:
+            session.clear()
+            session['usuario_id'] = usuario
+            session['credencial_versao'] = versao_credencial(os.environ[variavel_hash(usuario)])
+            session.permanent = True
             return redirect(url_for('admin_view'))
         else:
             error = 'Usuário ou senha incorretos. Tente novamente.'
@@ -230,7 +240,7 @@ def admin_login():
 
 @app.route('/admin/logout')
 def admin_logout():
-    session.pop('admin_logged_in', None)
+    session.clear()
     return redirect(url_for('admin_login'))
 
 # ── Trabalhador — Hub ──────────────────────────────────────────────────────────
@@ -462,7 +472,8 @@ def admin_view():
     return render_template('admin_hub.html',
                            pendentes_count=pendentes_count,
                            pedidos_pendentes_count=pedidos_pendentes_count,
-                           melhorias_pendentes_count=melhorias_count)
+                           melhorias_pendentes_count=melhorias_count,
+                           usuario_nome=USUARIOS[sessao_valida(session)])
 
 # ── Gestor / Admin — Produção por Semana ──────────────────────────────────────
 @app.route('/admin/producao')
@@ -1068,12 +1079,14 @@ def init_carteira_db():
         )''')
     cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_lead_etapa ON carteira_lead(etapa)')
     # Migração aditiva: conserva cadastros e históricos já existentes.
-    for coluna in ('contato', 'telefone', 'email', 'responsavel'):
+    for coluna in ('contato', 'telefone', 'email', 'responsavel', 'responsavel_usuario'):
         cur.execute("ALTER TABLE carteira_ficha ADD COLUMN IF NOT EXISTS " + coluna + " TEXT DEFAULT ''")
     cur.execute("ALTER TABLE carteira_interacao ADD COLUMN IF NOT EXISTS resultado TEXT DEFAULT ''")
     cur.execute("ALTER TABLE carteira_interacao ADD COLUMN IF NOT EXISTS responsavel TEXT DEFAULT ''")
+    cur.execute("ALTER TABLE carteira_interacao ADD COLUMN IF NOT EXISTS usuario_id TEXT DEFAULT ''")
     cur.execute("ALTER TABLE carteira_tarefa ADD COLUMN IF NOT EXISTS responsavel TEXT DEFAULT ''")
     cur.execute("ALTER TABLE carteira_tarefa ADD COLUMN IF NOT EXISTS concluido_em DATE")
+    cur.execute("ALTER TABLE carteira_lead ADD COLUMN IF NOT EXISTS responsavel_usuario TEXT DEFAULT ''")
 
     for coluna, tipo in (('segmento', "TEXT DEFAULT ''"), ('instagram', "TEXT DEFAULT ''"),
                          ('revenda', 'BOOLEAN DEFAULT FALSE'), ('revenda_de', "TEXT DEFAULT ''")):
@@ -1141,7 +1154,8 @@ def _carteira_dados():
     cur.execute('SELECT * FROM carteira_interacao ORDER BY data DESC, criado_em DESC, id DESC')
     inter = [{'id': r['id'], 'cliente': r['cliente_id'], 'data': r['data'].isoformat(),
               'tipo': r['tipo'] or '', 'resumo': r['resumo'] or '',
-              'resultado': r['resultado'] or '', 'responsavel': r['responsavel'] or ''}
+              'resultado': r['resultado'] or '', 'responsavel': r['responsavel'] or '',
+              'usuario_id': r['usuario_id'] or ''}
              for r in cur.fetchall()]
 
     # ultimo contato de cada cliente: e o que move a rotina de 15/30 dias
@@ -1181,13 +1195,15 @@ def _carteira_dados():
     if dados:
         dados['meta']['ultima_importacao'] = ultima_importacao
     prospec = carteira.analisar_leads(leads, dados, hoje)
-    return dados, fichas, inter, tarefas, aliases, prospec
+    pessoal = carteira.visao_pessoal(dados, leads, tarefas, inter,
+                                     sessao_valida(session), hoje.isoformat())
+    return dados, fichas, inter, tarefas, aliases, prospec, pessoal
 
 
 @app.route('/admin/carteira')
 @login_required
 def admin_carteira_view():
-    dados, fichas, inter, tarefas, aliases, prospec = _carteira_dados()
+    dados, fichas, inter, tarefas, aliases, prospec, pessoal = _carteira_dados()
     candidatos = carteira.candidatos_unificacao(dados) if dados else []
     return render_template(
         'admin_carteira.html',
@@ -1198,9 +1214,12 @@ def admin_carteira_view():
         aliases_json=_json.dumps(aliases, ensure_ascii=False),
         candidatos_json=_json.dumps(candidatos, ensure_ascii=False),
         prospec_json=_json.dumps(prospec, default=str, ensure_ascii=False),
+        pessoal_json=_json.dumps(pessoal, ensure_ascii=False),
         etapas_json=_json.dumps(carteira.ETAPAS, ensure_ascii=False),
         regioes_json=_json.dumps([[k, v[0], v[1]] for k, v in carteira.REGIOES.items()], ensure_ascii=False),
         hoje=today_sp(),
+        usuario_id=sessao_valida(session),
+        usuario_nome=USUARIOS[sessao_valida(session)],
     )
 
 
@@ -1213,7 +1232,7 @@ def admin_carteira_dados():
     recarregar. Recarregar custava a posicao da rolagem, a ficha aberta e a aba
     em que a pessoa estava, tres vezes a cada cliente editado.
     """
-    dados, fichas, inter, tarefas, aliases, prospec = _carteira_dados()
+    dados, fichas, inter, tarefas, aliases, prospec, pessoal = _carteira_dados()
     return jsonify({
         'success': True,
         'dados': dados,
@@ -1222,8 +1241,44 @@ def admin_carteira_dados():
         'tarefas': tarefas,
         'aliases': aliases,
         'prospec': prospec,
+        'pessoal': pessoal,
         'candidatos': carteira.candidatos_unificacao(dados) if dados else [],
     })
+
+
+@app.route('/admin/carteira/cliente/<cliente_id>/pedidos')
+@login_required
+def admin_carteira_pedidos(cliente_id):
+    """Vendas importadas e pedidos especiais ligados a este cliente ou seus apelidos."""
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute('SELECT DISTINCT COALESCE(a.canonico, v.cliente) '
+                    'FROM carteira_vendas v LEFT JOIN carteira_alias a ON a.apelido=v.cliente')
+        nomes = {carteira.id_cliente(nome): nome for (nome,) in cur.fetchall()}
+        nome = nomes.get(cliente_id)
+        if not nome:
+            return jsonify({'success': False, 'erro': 'Cliente não encontrado.'}), 404
+        cur.execute('SELECT v.data, v.valor FROM carteira_vendas v '
+                    'LEFT JOIN carteira_alias a ON a.apelido=v.cliente '
+                    'WHERE COALESCE(a.canonico, v.cliente)=%s '
+                    'ORDER BY v.data DESC, v.valor DESC', (nome,))
+        pedidos = carteira.historico_pedidos(cur.fetchall())
+        cur.execute('SELECT apelido FROM carteira_alias WHERE canonico=%s', (nome,))
+        nomes_cliente = {carteira.normalizar(x) for x in [nome] + [r[0] for r in cur.fetchall()]}
+        cur.execute('SELECT cliente, produto, quantidade, urgente, concluido, criado_em, '
+                    'data_entrega FROM special_orders ORDER BY criado_em DESC')
+        especiais = [dict(cliente=r[0], produto=r[1], quantidade=r[2],
+                          urgente=bool(r[3]), concluido=bool(r[4]),
+                          criado_em=r[5], data_entrega=r[6] or '')
+                     for r in cur.fetchall() if carteira.normalizar(r[0]) in nomes_cliente]
+    finally:
+        cur.close()
+        conn.close()
+    return jsonify({'success': True, 'pedidos': pedidos,
+                    'total_pedidos': len(pedidos),
+                    'total_lancamentos': sum(p['registros'] for p in pedidos),
+                    'pedidos_especiais': especiais})
 
 
 def _ler_upload(arq):
@@ -1320,6 +1375,9 @@ def admin_carteira_ficha():
     cid = (d.get('cliente_id') or '').strip()
     if not cid:
         return jsonify({'success': False, 'erro': 'cliente_id ausente'}), 400
+    dono = str(d.get('responsavel_usuario') or '').strip() if 'responsavel_usuario' in d else None
+    if dono is not None and dono not in ('', *USUARIOS):
+        return jsonify({'success': False, 'erro': 'Escolha um responsável válido.'}), 400
     situacao = d.get('situacao') or 'ativo'
     if situacao not in ('ativo', 'pausado', 'perdido'):
         situacao = 'ativo'
@@ -1364,10 +1422,49 @@ def admin_carteira_ficha():
         if campo in d:
             cur.execute('UPDATE carteira_ficha SET ' + campo + '=%s WHERE cliente_id=%s',
                         (str(d.get(campo) or '').strip()[:limite], cid))
+    if dono is not None:
+        cur.execute('UPDATE carteira_ficha SET responsavel_usuario=%s WHERE cliente_id=%s', (dono, cid))
     conn.commit()
     cur.close()
     conn.close()
     return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/atribuir', methods=['POST'])
+@login_required
+def admin_carteira_atribuir():
+    """Distribui clientes existentes; vazios continuam na fila de distribuição."""
+    d = request.get_json(silent=True) or {}
+    ids = list(dict.fromkeys(str(x).strip() for x in (d.get('ids') or []) if str(x).strip()))
+    dono = str(d.get('responsavel_usuario') or '').strip()
+    if not ids or len(ids) > 500:
+        return jsonify({'success': False, 'erro': 'Selecione de 1 a 500 clientes.'}), 400
+    if dono not in ('', *USUARIOS):
+        return jsonify({'success': False, 'erro': 'Escolha um responsável válido.'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute('SELECT DISTINCT COALESCE(a.canonico, v.cliente) '
+                    'FROM carteira_vendas v LEFT JOIN carteira_alias a ON a.apelido=v.cliente')
+        clientes = {carteira.id_cliente(nome): nome for (nome,) in cur.fetchall()}
+        if any(cid not in clientes for cid in ids):
+            return jsonify({'success': False, 'erro': 'A lista contém cliente desconhecido. Atualize a página.'}), 400
+        for cid in ids:
+            cur.execute('''
+                INSERT INTO carteira_ficha (cliente_id, cliente_nome, responsavel_usuario, atualizado_em)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (cliente_id) DO UPDATE SET
+                    responsavel_usuario=EXCLUDED.responsavel_usuario,
+                    atualizado_em=EXCLUDED.atualizado_em
+            ''', (cid, clientes[cid][:200], dono, now_sp_str()))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    return jsonify({'success': True, 'gravados': len(ids)})
 
 
 @app.route('/admin/carteira/fichas-lote', methods=['POST'])
@@ -1444,10 +1541,12 @@ def admin_carteira_interacao_add():
     novo = str(uuid.uuid4())
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('INSERT INTO carteira_interacao (id, cliente_id, data, tipo, resumo, criado_em) '
-                'VALUES (%s,%s,%s,%s,%s,%s)',
+    usuario = sessao_valida(session)
+    cur.execute('INSERT INTO carteira_interacao '
+                '(id, cliente_id, data, tipo, resumo, responsavel, usuario_id, criado_em) '
+                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                 (novo, cid, d.get('data') or today_sp(), (d.get('tipo') or '')[:40],
-                 resumo[:1000], now_sp_str()))
+                 resumo[:1000], USUARIOS[usuario], usuario, now_sp_str()))
     conn.commit()
     cur.close()
     conn.close()
@@ -1469,6 +1568,8 @@ def admin_carteira_contato():
         return jsonify({'success': False, 'erro': str(erro)}), 400
     except TypeError:
         return jsonify({'success': False, 'erro': 'Confira os campos e as datas.'}), 400
+    usuario = sessao_valida(session)
+    atividade['responsavel'] = USUARIOS[usuario]
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -1480,10 +1581,10 @@ def admin_carteira_contato():
                 return jsonify({'success': False, 'erro': 'A tarefa já foi concluída ou não pertence a este cadastro.'}), 409
         for cid in ids[:500]:
             cur.execute('INSERT INTO carteira_interacao '
-                        '(id, cliente_id, data, tipo, resumo, resultado, responsavel, criado_em) '
-                        'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                        '(id, cliente_id, data, tipo, resumo, resultado, responsavel, usuario_id, criado_em) '
+                        'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                         (str(uuid.uuid4()), cid, atividade['data'], 'contato', atividade['resumo'],
-                         atividade['resultado'], atividade['responsavel'], now_sp_str()))
+                         atividade['resultado'], atividade['responsavel'], usuario, now_sp_str()))
             # Leads já têm um único próximo passo na própria ficha. Ao registrar
             # nova conversa, arquivamos o combinado anterior e o substituímos;
             # criar também uma tarefa aberta mostraria o retorno duas vezes.
@@ -1746,15 +1847,16 @@ def admin_lead_novo():
     cur.execute('''
         INSERT INTO carteira_lead (id, nome, cidade, uf, contato, telefone, email, etapa,
                                    segmento, instagram, obs, proximo, proximo_em,
-                                   revenda, revenda_de, origem_arq, criado_em, atualizado_em)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                   revenda, revenda_de, origem_arq, criado_em, atualizado_em,
+                                   responsavel_usuario)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     ''', (lid, nome, cidade, carteira.normalizar_uf(d.get('uf') or ''),
           (d.get('contato') or '')[:120], (d.get('telefone') or '')[:40],
           (d.get('email') or '')[:160], etapa, (d.get('segmento') or '')[:60],
           (d.get('instagram') or '')[:300], (d.get('obs') or '')[:2000],
           (d.get('proximo') or '')[:300], (d.get('proximo_em') or None),
           bool(d.get('revenda')), (d.get('revenda_de') or '')[:200],
-          'cadastrado à mão', agora, agora))
+          'cadastrado à mão', agora, agora, sessao_valida(session)))
     conn.commit()
     cur.close()
     conn.close()
@@ -1778,12 +1880,16 @@ def admin_lead_concluir_retorno():
             return jsonify({'success': False, 'erro': 'Este retorno já foi alterado. Atualize a página.'}), 409
         cur.execute("UPDATE carteira_lead SET proximo='', proximo_em=NULL, atualizado_em=%s WHERE id=%s",
                     (now_sp_str(), lid))
-        cur.execute('INSERT INTO carteira_tarefa (id, cliente_id, titulo, prazo, feita, concluido_em, criado_em) '
-                    'VALUES (%s,%s,%s,%s,%s,%s,%s)',
-                    (str(uuid.uuid4()), lid, titulo or 'Retorno combinado', prazo or None, True, today_sp(), now_sp_str()))
-        cur.execute('INSERT INTO carteira_interacao (id, cliente_id, data, tipo, resumo, criado_em) '
-                    'VALUES (%s,%s,%s,%s,%s,%s)',
-                    (str(uuid.uuid4()), lid, today_sp(), 'tarefa', titulo or 'Retorno combinado concluído', now_sp_str()))
+        usuario = sessao_valida(session)
+        cur.execute('INSERT INTO carteira_tarefa (id, cliente_id, titulo, prazo, feita, concluido_em, '
+                    'responsavel, criado_em) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (str(uuid.uuid4()), lid, titulo or 'Retorno combinado', prazo or None, True,
+                     today_sp(), USUARIOS[usuario], now_sp_str()))
+        cur.execute('INSERT INTO carteira_interacao '
+                    '(id, cliente_id, data, tipo, resumo, responsavel, usuario_id, criado_em) '
+                    'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (str(uuid.uuid4()), lid, today_sp(), 'tarefa', titulo or 'Retorno combinado concluído',
+                     USUARIOS[usuario], usuario, now_sp_str()))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1804,6 +1910,9 @@ def admin_lead_salvar():
     etapa = d.get('etapa') or 'novo'
     if etapa not in [e[0] for e in carteira.ETAPAS]:
         etapa = 'novo'
+    dono = str(d.get('responsavel_usuario') or '').strip() if 'responsavel_usuario' in d else None
+    if dono is not None and dono not in ('', *USUARIOS):
+        return jsonify({'success': False, 'erro': 'Escolha um responsável válido.'}), 400
     conn = get_db()
     cur = conn.cursor()
     # So grava o que veio no corpo. Um UPDATE de todas as colunas com os campos
@@ -1823,8 +1932,14 @@ def admin_lead_salvar():
                 cur.close()
                 conn.close()
                 return jsonify({'success': False, 'erro': 'Escolha um cliente da carteira.'}), 400
+            cur.execute('SELECT responsavel_usuario FROM carteira_ficha WHERE cliente_id=%s', (cid,))
+            ficha_dono = cur.fetchone()
+            dono = (ficha_dono[0] or '') if ficha_dono else ''
         campos.append('cliente_id=%s')
         valores.append(cid)
+    if dono is not None:
+        campos.append('responsavel_usuario=%s')
+        valores.append(dono)
 
     for k, lim in limites.items():
         if k in d:
@@ -1884,7 +1999,8 @@ def admin_carteira_unificar():
     # 1. a ficha do canonico, para saber o que ja esta preenchido
     cur.execute('SELECT * FROM carteira_ficha WHERE cliente_id=%s', (id_novo,))
     base = dict(cur.fetchone() or {})
-    TEXTOS = ('cidade', 'estado', 'motivo', 'atuacao', 'obs', 'contato', 'telefone', 'email', 'responsavel')
+    TEXTOS = ('cidade', 'estado', 'motivo', 'atuacao', 'obs', 'contato', 'telefone',
+              'email', 'responsavel', 'responsavel_usuario')
 
     movidos = {'contatos': 0, 'tarefas': 0, 'fichas': 0}
     for nome in apelidos:
@@ -1943,7 +2059,7 @@ def admin_carteira_unificar():
               bool(base.get('prioridade')), now_sp_str()))
 
     if base:
-        for campo in ('contato', 'telefone', 'email', 'responsavel'):
+        for campo in ('contato', 'telefone', 'email', 'responsavel', 'responsavel_usuario'):
             cur.execute('UPDATE carteira_ficha SET ' + campo + '=%s WHERE cliente_id=%s',
                         (base.get(campo) or '', id_novo))
     for nome in apelidos:
@@ -2047,6 +2163,10 @@ def admin_carteira_alias():
             # não sobrescrever um cadastro preenchido à mão.
             cur.execute('SELECT 1 FROM carteira_ficha WHERE cliente_id=%s', (para,))
             if cur.fetchone():
+                cur.execute('UPDATE carteira_ficha SET responsavel_usuario=COALESCE('
+                            "NULLIF(responsavel_usuario, ''), "
+                            '(SELECT responsavel_usuario FROM carteira_ficha WHERE cliente_id=%s)) '
+                            'WHERE cliente_id=%s', (de, para))
                 cur.execute('DELETE FROM carteira_ficha WHERE cliente_id=%s', (de,))
             else:
                 cur.execute('UPDATE carteira_ficha SET cliente_id=%s, cliente_nome=%s '

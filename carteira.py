@@ -280,7 +280,7 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None, retorn
         C[n]['situacao'] = (f.get('situacao') or 'ativo')
         C[n]['motivo'] = f.get('motivo') or ''
         C[n]['encerrado'] = C[n]['situacao'] in SITUACOES_ENCERRADAS
-        for campo in ('contato', 'telefone', 'email', 'responsavel'):
+        for campo in ('contato', 'telefone', 'email', 'responsavel', 'responsavel_usuario'):
             C[n][campo] = f.get(campo) or ''
         C[n]['cidade'] = f.get('cidade') or ''
         C[n]['uf_base'] = (f.get('estado') or '').upper()
@@ -1205,3 +1205,42 @@ def retornos_pendentes(tarefas, leads):
         if cid not in retorno or prazo < retorno[cid]:
             retorno[cid] = prazo
     return retorno
+
+
+def visao_pessoal(dados, leads, tarefas, interacoes, usuario, hoje):
+    """Define no servidor quais clientes e compromissos entram na agenda pessoal.
+
+    A carteira completa continua compartilhada pelos três usuários. Um lead
+    vinculado acompanha o responsável do cliente, mesmo se tiver um dono antigo.
+    """
+    clientes = {c['id']: c.get('responsavel_usuario') or ''
+                for c in (dados or {}).get('clientes', [])}
+    meus_clientes = {cid for cid, dono in clientes.items() if dono == usuario}
+    meus_leads = set()
+    for lead in leads:
+        vinculado = lead.get('cliente_id')
+        dono = clientes[vinculado] if vinculado in clientes else lead.get('responsavel_usuario') or ''
+        if dono == usuario:
+            meus_leads.add(lead['id'])
+    minhas_tarefas = [t['id'] for t in tarefas
+                      if t.get('cliente') in meus_clientes | meus_leads]
+    return {
+        'clientes': sorted(meus_clientes),
+        'leads': sorted(meus_leads),
+        'tarefas': minhas_tarefas,
+        'contatos_hoje': sum(1 for i in interacoes
+                            if i.get('data') == hoje and i.get('tipo') != 'tarefa'
+                            and i.get('usuario_id') == usuario),
+    }
+
+
+def historico_pedidos(linhas):
+    """Mesmo critério do painel: lançamentos do cliente no mesmo dia formam um pedido."""
+    from decimal import Decimal
+    dias = defaultdict(list)
+    for data, valor in linhas:
+        chave = data.isoformat() if hasattr(data, 'isoformat') else str(data)[:10]
+        dias[chave].append(Decimal(str(valor)))
+    return [dict(data=data, valor=float(sum(valores)),
+                 registros=len(valores), valores=[float(v) for v in valores])
+            for data, valores in sorted(dias.items(), reverse=True)]
