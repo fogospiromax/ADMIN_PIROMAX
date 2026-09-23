@@ -226,7 +226,7 @@ function linhaFila(f) {
   return '<div class="linha' + (f.prioridade ? ' prio' : '')
     + (f.contato_hoje ? ' feita' : (f.contato_urgente ? '' : ' emdia')) + '">'
     + '<span class="faixa f-' + f.tipo + '" aria-hidden="true"></span>'
-    + '<button class="corpo" type="button" data-id="' + esc(f.id) + '">'
+    + '<div class="corpo" role="button" tabindex="0" data-id="' + esc(f.id) + '">'
       + '<span class="topo">'
       + (f.prioridade ? '<span class="selo s-prio">★ Prioridade</span>' : '')
       + '<span class="selo s-' + f.tipo + '">' + rot[1]
@@ -241,7 +241,7 @@ function linhaFila(f) {
       + (f.manual ? '<span class="marca obs">✎ classificado por você. O sistema diria: '
           + esc(f.auto_rotulo) + '</span>' : '')
       + (f.motivo ? '<span class="marca obs">✎ ' + esc(f.motivo) + '</span>' : '')
-    + '</button>'
+    + '</div>'
     + '<span class="dir">'
       + '<span class="valor">' + (f.peso ? moeda(f.peso) : '—') + '</span>'
       + '<span class="leg">' + (f.peso ? 'em jogo' : 'só rotina') + '</span>'
@@ -261,8 +261,19 @@ $('h-fila').addEventListener('click', function (e) {
   if (ok) { abrirFicha(ok.dataset.c, 'cliente', false, true); return; }
   var un = e.target.closest('button[data-u]');
   if (un) { desfazerContato(un.dataset.u, un); return; }
-  var b = e.target.closest('button[data-id]');
+  var b = e.target.closest('.corpo[data-id]');
   if (b) abrirFicha(b.dataset.id, 'cliente');
+});
+/* O corpo da linha nao e <button> de proposito: o Chrome cria uma caixa
+   interna que RECORTA o conteudo do botao quando ele transborda, e isso comia
+   o comeco de cada linha em tela estreita. Com div + role + tabindex o
+   teclado continua funcionando e o layout se comporta. */
+$('h-fila').addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var b = e.target.closest('.corpo[data-id]');
+  if (!b) return;
+  e.preventDefault();
+  abrirFicha(b.dataset.id, 'cliente');
 });
 
 /* Desfazer é apagar o registro de hoje daquele cliente, não um estado de tela.
@@ -798,7 +809,7 @@ function faixaCliente(c, d, anos) {
       + (s2 ? '<span class="s">' + s2 + '</span>' : '') + '</div>';
   };
   var v = c.var_ytd_pct;
-  return '<div class="cartao faixa">'
+  return '<div class="cartao faixatopo">'
     + '<div class="nums">'
       + tile('Receita total', cheio(c.receita), c.compras + ' compras')
       + tile('Pedido médio', cheio(c.ticket), 'maior: ' + moeda(c.tmax))
