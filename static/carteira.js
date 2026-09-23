@@ -583,13 +583,13 @@ function pintarRegistros() {
       + '<td class="extra-col" style="font-size:.79rem;color:var(--texto2)">' + esc(c.atuacao_rotulo || '—') + '</td>'
       + '<td><span class="selo s-' + d[1] + '">' + d[0] + '</span>'
         + (c.classe_manual ? ' <span class="selo s-novo">✎</span>' : '') + '</td>'
-      + '<td class="num extra-col">' + moeda(c.receita) + '</td>'
+      + '<td class="num extra-col">' + c.compras + '</td>'
       + '<td class="num extra-col ' + (v === null ? '' : (v >= 0 ? 'pos' : 'neg')) + '">'
         + (v === null ? '—' : pct(v)) + '</td>'
       + '<td class="num extra-col">' + cheio(c.ticket).replace('R$ ', '') + '</td>'
       + '<td class="num extra-col">' + dia(c.ultima) + '</td>'
       + '<td class="num extra-col">' + dia(c.primeira) + '</td>'
-      + '<td class="num">' + c.compras + '</td>'
+      + '<td class="num">' + cheio(c.receita) + '</td>'
       + '<td>' + (ult ? dia(ult.data) : 'Sem registro') + '<small class="celula-sub">' + esc(c.contato_rotulo) + '</small></td>'
       + '<td class="proxima-col">' + (proximaTarefa(c.id) ? esc(proximaTarefa(c.id).titulo) + '<small class="celula-sub">' + dia(proximaTarefa(c.id).prazo) + '</small>' : 'Sem ação agendada') + '</td></tr>';
   }).join('') : '<tr><td colspan="14"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
