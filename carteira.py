@@ -106,6 +106,29 @@ def _rotulo(m):
     return '%04d-%02d' % (m // 12, m % 12 + 1)
 
 
+def horizonte_tres_meses(matriz, compras, primeira, hoje, encerrado=False):
+    """Realizado e estimativa por cliente, do mes atual aos dois seguintes.
+
+    A estimativa e a media do mesmo mes nos dois anos anteriores em que o
+    cliente ja existia. Sem ano comparavel, devolve None em vez de inventar zero.
+    """
+    m_atual, m_primeiro = _mes(hoje), _mes(primeira)
+    meses = []
+    for deslocamento in range(3):
+        m = m_atual + deslocamento
+        base = [{'ano': anterior // 12, 'valor': matriz.get(anterior, 0.0)}
+                for anterior in (m - 24, m - 12)
+                if m_primeiro <= anterior < m_atual]
+        media = sum(b['valor'] for b in base) / len(base) if base and not encerrado else None
+        realizado = sum(v for d, v in compras if _mes(d) == m and d <= hoje)
+        estimativa = max(media, realizado) if deslocamento == 0 and media is not None else media
+        meses.append({'mes': _rotulo(m), 'realizado': realizado,
+                      'estimativa': estimativa, 'base': base})
+    total = (sum(m['estimativa'] for m in meses)
+             if all(m['estimativa'] is not None for m in meses) else None)
+    return {'meses': meses, 'total_estimado': total, 'encerrado': bool(encerrado)}
+
+
 REGIOES = {
     'N':  ('Norte',        ['AC', 'AP', 'AM', 'PA', 'RO', 'RR', 'TO']),
     'NE': ('Nordeste',     ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE']),
@@ -308,6 +331,9 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None, retorn
     # ── rotina de contato ──
     HOJE = hoje or REF
     for n in nomes:
+        C[n]['horizonte'] = horizonte_tres_meses(mat[n], por_cliente[n], C[n]['primeira'], HOJE,
+                                                C[n]['encerrado'])
+        C[n]['previsao_trimestre'] = C[n]['horizonte']['total_estimado']
         C[n]['dias_desde_compra_hoje'] = (HOJE - C[n]['ultima']).days
         _rotina(C[n], fichas.get(C[n]['id'], {}), contatos.get(C[n]['id']), HOJE,
                 retornos.get(C[n]['id']))
@@ -926,7 +952,7 @@ ETAPAS = [
     ('novo',        'A qualificar', 'Entrou na lista e ninguém olhou ainda.'),
     ('qualificado', 'Qualificado',  'Serve como cliente, mas a conversa ainda não começou.'),
     ('contato',     'Em conversa',  'Alguém já falou, a conversa está viva.'),
-    ('ganho',       'Ganhou',       'Negociação fechada. Vincule ao cliente após a primeira venda importada.'),
+    ('ganho',       'Ganhou',       'Negociação fechada. O histórico do lead continua separado da carteira.'),
     ('perdido',     'Perdido',      'Não vai acontecer, com o motivo escrito.'),
 ]
 ETAPAS_ABERTAS = ('novo', 'qualificado', 'contato')
@@ -1071,8 +1097,8 @@ def analisar_leads(leads, clientes_dados=None, hoje=None):
     marca errada numa lista de prospeccao e pior do que marca nenhuma: tira da
     fila alguem que deveria estar nela.
 
-    O que vale e o que o gestor marca a mao: revenda, quando o lead ja vende
-    produto Piromax comprado de um cliente dele.
+    O que vale e o que o gestor marca a mao: compra por revenda, quando o lead
+    ja compra produto Piromax sem comprar diretamente da fabrica.
     """
     saida, por_etapa = [], defaultdict(list)
     for L in leads:
@@ -1102,7 +1128,7 @@ def analisar_leads(leads, clientes_dados=None, hoje=None):
         'conversao': (len(por_etapa['ganho']) / fechados * 100) if fechados else None,
         'revendas': sum(1 for d in saida if d['revenda']),
         'por_fornecedor': _contar([d for d in saida if d['revenda']],
-                                  lambda d: d['revenda_de'] or 'fornecedor não informado'),
+                                  lambda d: d['revenda_de'] or 'revenda não informada'),
         'por_segmento': _contar(saida, lambda d: d.get('segmento') or 'sem segmento'),
         'por_regiao': _contar(saida, lambda d: d.get('regiao_nome') or 'sem estado'),
         'por_uf': _contar(saida, lambda d: d.get('uf') or '—'),
@@ -1190,14 +1216,13 @@ def validar_atividade(d, hoje):
                 responsavel=str(d.get('responsavel') or '').strip()[:120])
 
 
-def retornos_pendentes(tarefas, leads):
-    """Menor prazo em aberto por cliente, incluindo tarefas de leads vinculados."""
-    vinculos = {l['id']: l.get('cliente_id') for l in leads if l.get('cliente_id')}
+def retornos_pendentes(tarefas):
+    """Menor prazo em aberto por cadastro, sem misturar lead e cliente direto."""
     retorno = {}
     for t in tarefas:
         if t.get('feita') or not t.get('prazo'):
             continue
-        cid = vinculos.get(t['cliente']) or t['cliente']
+        cid = t['cliente']
         try:
             prazo = date.fromisoformat(str(t['prazo'])[:10])
         except ValueError:
@@ -1210,17 +1235,15 @@ def retornos_pendentes(tarefas, leads):
 def visao_pessoal(dados, leads, tarefas, interacoes, usuario, hoje):
     """Define no servidor quais clientes e compromissos entram na agenda pessoal.
 
-    A carteira completa continua compartilhada pelos três usuários. Um lead
-    vinculado acompanha o responsável do cliente, mesmo se tiver um dono antigo.
+    A carteira completa continua compartilhada pelos três usuários. O dono de
+    cada lead é independente do cliente direto que eventualmente o abastece.
     """
     clientes = {c['id']: c.get('responsavel_usuario') or ''
                 for c in (dados or {}).get('clientes', [])}
     meus_clientes = {cid for cid, dono in clientes.items() if dono == usuario}
     meus_leads = set()
     for lead in leads:
-        vinculado = lead.get('cliente_id')
-        dono = clientes[vinculado] if vinculado in clientes else lead.get('responsavel_usuario') or ''
-        if dono == usuario:
+        if (lead.get('responsavel_usuario') or '') == usuario:
             meus_leads.add(lead['id'])
     minhas_tarefas = [t['id'] for t in tarefas
                       if t.get('cliente') in meus_clientes | meus_leads]
