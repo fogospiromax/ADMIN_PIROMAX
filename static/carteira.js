@@ -147,8 +147,6 @@ function indexar() {
 function donoRegistro(id) {
   var cliente = IX[id], lead = LEAD_IX[id];
   if (cliente) return cliente.responsavel_usuario || '';
-  if (lead && lead.cliente_id && IX[lead.cliente_id])
-    return IX[lead.cliente_id].responsavel_usuario || '';
   return lead ? lead.responsavel_usuario || '' : '';
 }
 
@@ -173,8 +171,6 @@ function pendenciasDoDia() {
   var agendados = {};
   compromissos.forEach(function(t) {
     agendados[t.cliente] = true;
-    var lead = LEAD_IX[t.cliente];
-    if (lead && lead.cliente_id) agendados[lead.cliente_id] = true;
   });
   var meus = new Set((PESSOAL && PESSOAL.clientes) || []);
   var sugestoes = D && D.fila ? D.fila.filter(function(f) {
@@ -307,9 +303,7 @@ function agendaPessoalItens() {
   });
 }
 function proximaTarefa(id) {
-  var ids = [id];
-  if (PROSPEC) PROSPEC.leads.forEach(function (l) { if (l.cliente_id === id) ids.push(l.id); });
-  return agendaItens().filter(function (t) { return !t.feita && ids.indexOf(t.cliente) >= 0; })[0];
+  return agendaItens().filter(function (t) { return !t.feita && t.cliente === id; })[0];
 }
 function pintarAgenda() {
   var hoje = hojeISO(), itens = agendaPessoalItens(), grupos = {
@@ -337,9 +331,8 @@ function linhaAgenda(t) {
       : '<button class="btn-ok" data-concluir-lead="'+esc(t.id)+'">Concluir retorno</button>')+'</div>';
 }
 function formularioContato(id) {
-  var p = IX[id] || LEAD_IX[id] || {}, ids = [id];
-  if (PROSPEC) PROSPEC.leads.forEach(function(l){ if(l.cliente_id === id) ids.push(l.id); });
-  var log = (INTER || []).filter(function(i){return ids.indexOf(i.cliente)>=0;});
+  var p = IX[id] || LEAD_IX[id] || {};
+  var log = (INTER || []).filter(function(i){return i.cliente === id;});
   return '<div class="cartao" id="bloco-contato"><h3>Registrar contato</h3><div class="grade g2" style="margin-top:12px">'
     + '<div class="campo"><label for="fc-resultado">Resultado</label><select id="fc-resultado">'+Object.keys(RESULTADOS).map(function(k){return '<option value="'+k+'">'+RESULTADOS[k]+'</option>';}).join('')+'</select></div>'
     + '<div class="assinatura-contato"><span>Registrado por</span><strong>'+esc(nomeUsuario(USUARIO_ATUAL))+'</strong><small>Identificado automaticamente pelo login</small></div></div>'
@@ -353,9 +346,7 @@ function formularioContato(id) {
     + (log.length?log.map(function(i){return '<div class="it"><span class="d">'+dia(i.data)+'</span><span class="t"><b>'+esc(RESULTADOS[i.resultado] || (i.tipo==='tarefa'?'Retorno concluído':'Contato'))+'</b>'+ (i.responsavel?' · '+esc(i.responsavel):'')+'<br>'+esc(i.resumo)+'</span></div>';}).join(''):'<p class="nota">Sem contato registrado.</p>')+'</div></details></div>';
 }
 function painelTarefas(id) {
-  var ids = [id];
-  if (PROSPEC) PROSPEC.leads.forEach(function(l){if(l.cliente_id===id)ids.push(l.id);});
-  var itens = agendaItens().filter(function(t){return ids.indexOf(t.cliente)>=0 && !t.feita;});
+  var itens = agendaItens().filter(function(t){return t.cliente===id && !t.feita;});
   return '<div class="cartao"><h3>Próximas ações</h3>'+ (itens.length?itens.map(linhaAgenda).join(''):'<p class="nota">Nenhuma tarefa pendente.</p>')
     + '<details class="saiba"><summary>Agendar tarefa sem registrar contato</summary><div class="campo"><label for="ft-titulo">O que precisa ser feito</label><input id="ft-titulo" maxlength="300"></div><div class="grade g2"><div class="campo"><label for="ft-prazo">Prazo</label><input id="ft-prazo" type="date"></div><div class="campo"><label for="ft-responsavel">Responsável</label><input id="ft-responsavel" maxlength="120"></div></div><div class="acoes"><button data-a="tarefa">Agendar tarefa</button></div></details></div>';
 }
@@ -590,9 +581,12 @@ function pintarRegistros() {
       + '<td class="num extra-col">' + dia(c.ultima) + '</td>'
       + '<td class="num extra-col">' + dia(c.primeira) + '</td>'
       + '<td class="num">' + cheio(c.receita) + '</td>'
+      + '<td class="num horizonte-col">' + (c.previsao_trimestre == null ? '—' : moeda(c.previsao_trimestre))
+        + '<small class="celula-sub">' + (c.previsao_trimestre == null ? (c.horizonte.encerrado ? 'cliente encerrado' : 'sem base comparável')
+          : esc(mesrot(c.horizonte.meses[0].mes) + ' a ' + mesrot(c.horizonte.meses[2].mes))) + '</small></td>'
       + '<td>' + (ult ? dia(ult.data) : 'Sem registro') + '<small class="celula-sub">' + esc(c.contato_rotulo) + '</small></td>'
       + '<td class="proxima-col">' + (proximaTarefa(c.id) ? esc(proximaTarefa(c.id).titulo) + '<small class="celula-sub">' + dia(proximaTarefa(c.id).prazo) + '</small>' : 'Sem ação agendada') + '</td></tr>';
-  }).join('') : '<tr><td colspan="14"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
+  }).join('') : '<tr><td colspan="15"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
   document.querySelectorAll('#r-tab th button[data-s]').forEach(function(b){
     b.parentElement.setAttribute('aria-sort', b.dataset.s === estado.ord ? (estado.asc ? 'ascending':'descending') : 'none');
   });
@@ -923,6 +917,26 @@ $('tela').addEventListener('keydown', function (e) {
 
 function stat(k, v) { return '<div class="stat"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'; }
 
+function cartaoHorizonte(c) {
+  var h = c.horizonte;
+  if (!h || !h.meses || h.meses.length !== 3) return '';
+  return '<div class="cartao horizonte-cartao"><div class="horizonte-cabecalho">'
+    + '<div><h3>Vendas e estimativa · 3 meses</h3><p class="nota">Mês atual e os dois seguintes</p></div>'
+    + '<div class="horizonte-total"><span>Total estimado</span><strong>'
+    + (h.total_estimado == null ? (h.encerrado ? 'Sem previsão' : 'Sem base suficiente') : cheio(h.total_estimado))
+    + '</strong></div></div><div class="horizonte-meses">'
+    + h.meses.map(function(m, i) {
+        return '<div class="horizonte-mes"><span>' + esc(mesrot(m.mes)) + '</span><strong>'
+          + (m.estimativa == null ? (h.encerrado ? 'Sem previsão' : 'Sem histórico') : cheio(m.estimativa)) + '</strong><small>'
+          + (i === 0 ? 'Vendido até hoje: ' + cheio(m.realizado) : 'Estimativa pelo histórico')
+          + '</small></div>';
+      }).join('') + '</div><p class="nota horizonte-nota">'
+    + (h.encerrado ? 'Cliente encerrado: as vendas realizadas continuam visíveis, mas não há estimativa futura.'
+      : 'Estimativa: média deste mês nos dois anos anteriores em que o cliente já existia. '
+        + 'No mês atual, ela nunca fica abaixo do valor já vendido. Não representa pedido confirmado.')
+    + '</p></div>';
+}
+
 function fichaCliente(id) {
   var c = IX[id];
   if (!c) return '';
@@ -955,6 +969,7 @@ function fichaCliente(id) {
 
       + formularioContato(id)
       + painelTarefas(id)
+      + cartaoHorizonte(c)
       + '<div class="cartao" style="border-color:' + (c.contato_urgente ? '#f0dcae' : '#cfe6da') + '">'
         + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
         + '<h3>Rotina de contato</h3><span class="mono" style="font-weight:700;font-size:.79rem;color:' + cor + '">'
@@ -1041,8 +1056,6 @@ function fichaCliente(id) {
         + '<span class="pedidos-contagem" id="f-pedidos-contagem"></span></div>'
         + '<div id="f-pedidos" role="status"><p class="nota">Carregando compras…</p></div>'
         + '<p class="nota pedidos-fonte">A importação de vendas contém data, cliente e valor. Lançamentos do mesmo dia são agrupados como uma compra; número do pedido e produtos não constam nessa origem.</p>'
-        + '<div class="pedidos-cabecalho pedidos-subtitulo"><h3>Pedidos especiais</h3><span class="pedidos-contagem" id="f-especiais-contagem"></span></div>'
-        + '<div id="f-pedidos-especiais" role="status"><p class="nota">Carregando pedidos…</p></div>'
       + '</div>'
       + '<div class="cartao"><h3 style="margin-bottom:8px">Quando ele compra</h3>' + sazCliente(c.mensal) + '</div>'
     + '</div>'
@@ -1073,26 +1086,10 @@ function carregarPedidos(id) {
                 + (p.valores || []).map(function(v) { return '<li>' + esc(cheio(v)) + '</li>'; }).join('')
                 + '</ul></details>' : '') + '</li>';
           }).join('') + '</ol>' : '<p class="nota">Nenhuma compra encontrada.</p>';
-      var especiais = j.pedidos_especiais || [];
-      $('f-especiais-contagem').textContent = especiais.length
-        + (especiais.length === 1 ? ' item' : ' itens');
-      $('f-pedidos-especiais').removeAttribute('role');
-      $('f-pedidos-especiais').innerHTML = especiais.length ? '<ol class="pedidos-lista">'
-        + especiais.map(function(p) {
-            return '<li class="pedido-item"><div class="pedido-principal">'
-              + '<strong class="pedido-produto">' + esc(p.produto) + '</strong>'
-              + '<span class="pedido-situacao' + (p.concluido ? ' pronto' : '') + '">'
-              + (p.concluido ? 'Concluído' : 'Em aberto') + '</span></div>'
-              + '<div class="pedido-metadata">' + esc(p.quantidade) + ' un. · registrado em '
-              + esc(p.criado_em || '—')
-              + (p.data_entrega ? ' · entrega ' + esc(p.data_entrega) : '')
-              + (p.urgente ? ' · urgente' : '') + '</div></li>';
-          }).join('') + '</ol>' : '<p class="nota">Nenhum pedido especial vinculado a este nome de cliente.</p>';
     }).catch(function() {
       if (abertaId !== id || abertoTipo !== 'cliente' || !$('f-pedidos')) return;
       $('f-pedidos').innerHTML = '<p class="nota">Não foi possível carregar as compras.</p>'
         + '<button type="button" data-a="pedidos-recarregar">Tentar novamente</button>';
-      $('f-pedidos-especiais').innerHTML = '';
     });
 }
 
@@ -1147,7 +1144,7 @@ function fichaLead(id) {
   + '<aside class="gaveta" role="dialog" aria-modal="true" aria-label="Lead ' + esc(L.nome) + '">'
   + '<div class="gtopo"><div style="min-width:0">'
     + '<p class="olho" style="margin-bottom:3px">Lead'
-      + (L.revenda ? ' · JÁ REVENDE PIROMAX' : '') + '</p>'
+      + (L.revenda ? ' · CLIENTE INDIRETO' : '') + '</p>'
     + '<h2 style="word-break:break-word">' + esc(L.nome) + '</h2>'
     + '<p style="margin-top:4px;color:var(--texto2);font-size:.79rem">'
       + esc([L.cidade, L.uf].filter(Boolean).join(' / ') || 'sem cidade') + '</p>'
@@ -1155,19 +1152,18 @@ function fichaLead(id) {
   + '<div class="gcorpo">'
     + '<p id="f-status" class="nota" role="status"></p>' + atalhosContato(L)
     + formularioContato(id) + painelTarefas(id)
-    + '<details class="cartao cadastro-detalhes"><summary>Cadastro, etapa e vínculo com cliente</summary>'
+    + '<details class="cartao cadastro-detalhes"><summary>Cadastro e etapa do lead</summary>'
     + '<div class="cartao"' + (L.revenda ? ' style="border-color:#f0dcae"' : '') + '>'
-      + '<h3>Já revende Piromax?</h3>'
-      + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Marque quando ele já vende produto '
-      + 'Piromax comprado de um cliente seu. A conversa passa a ser outra: ele conhece o produto, '
-      + 'e puxar para venda direta mexe com o seu próprio distribuidor.</p>'
+      + '<h3>Compra Piromax por revenda?</h3>'
+      + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Marque quando esta empresa já compra '
+      + 'Piromax por uma revenda, sem comprar diretamente da fábrica.</p>'
       + '<label style="display:flex;gap:8px;align-items:center;font-size:.85rem;cursor:pointer">'
       + '<input type="checkbox" id="fl-revenda"' + (L.revenda ? ' checked' : '')
       + ' style="width:16px;height:16px;accent-color:var(--roxo)">'
       + 'Compra Piromax por revenda</label>'
-      + '<div class="campo" style="margin-top:9px"><label for="fl-revde">De qual cliente seu</label>'
+      + '<div class="campo" style="margin-top:9px"><label for="fl-revde">De qual revenda compra?</label>'
       + '<input id="fl-revde" list="fl-clientes" value="' + esc(L.revenda_de || '') + '" '
-      + 'placeholder="nome do cliente que abastece ele">'
+      + 'placeholder="nome da revenda, se souber">'
       + '<datalist id="fl-clientes">'
       + (D && D.clientes ? D.clientes.map(function (c) {
           return '<option value="' + esc(c.nome) + '">'; }).join('') : '')
@@ -1193,8 +1189,7 @@ function fichaLead(id) {
       + '<input id="fl-seg" value="' + esc(L.segmento || '') + '" list="fl-segs">'
       + '<datalist id="fl-segs">' + ((PROSPEC && PROSPEC.por_segmento) || []).map(function (q) {
           return '<option value="' + esc(q[0]) + '">'; }).join('') + '</datalist></div>'
-    + '<div class="campo"><label for="fl-cliente">Cliente vinculado</label><select id="fl-cliente"><option value="">Ainda sem vínculo</option>' + (D ? D.clientes : []).map(function(c){return '<option value="'+esc(c.id)+'"'+(L.cliente_id===c.id?' selected':'')+'>'+esc(c.nome)+'</option>';}).join('') + '</select><p class="nota">Ganho indica negociação fechada. Após importar a primeira venda, selecione o cliente correspondente. O vínculo não altera vendas.</p></div>'
-    + '<div class="campo"><label for="fl-dono">Responsável pelo lead</label><select id="fl-dono">'+opcoesResponsavel(donoRegistro(id))+'</select><p class="nota">Se estiver vinculado a um cliente, a agenda seguirá o responsável desse cliente.</p></div>'
+    + '<div class="campo"><label for="fl-dono">Responsável pelo lead</label><select id="fl-dono">'+opcoesResponsavel(donoRegistro(id))+'</select><p class="nota">A agenda deste lead segue este responsável, mesmo quando ele compra por revenda.</p></div>'
     + '<div class="campo"><label for="fl-prox">Próximo passo</label>'
       + '<input id="fl-prox" value="' + esc(L.proximo) + '" placeholder="Ex.: mandar tabela de preço"></div>'
     + '<div class="campo"><label for="fl-quando">Para quando</label>'
@@ -1202,6 +1197,7 @@ function fichaLead(id) {
     + '<div class="campo"><label for="fl-motivo">Observação ou motivo da perda</label>'
       + '<textarea id="fl-motivo" rows="2">' + esc(L.motivo || L.obs || '') + '</textarea></div>'
     + '<div class="acoes"><button class="pri" type="button" data-a="lead-salvar">Salvar lead</button>'
+      + '<button class="lead-excluir" type="button" data-a="lead-remover">Excluir lead</button>'
       + '</div></details>'
   + '</div></aside>';
 }
@@ -1245,8 +1241,8 @@ function abrirNovoLead() {
     + campo('nl-insta', 'Instagram ou site', 'placeholder="cole o link do perfil"')
     + '<label style="display:flex;gap:8px;align-items:center;font-size:.85rem;cursor:pointer">'
       + '<input type="checkbox" id="nl-revenda" style="width:16px;height:16px;accent-color:var(--roxo)">'
-      + 'Já revende Piromax comprando de um cliente meu</label>'
-    + '<div class="campo"><label for="nl-revde">De qual cliente seu</label>'
+      + 'Já compra Piromax por revenda</label>'
+    + '<div class="campo"><label for="nl-revde">De qual revenda compra?</label>'
       + '<input id="nl-revde" list="nl-clientes" placeholder="opcional">'
       + '<datalist id="nl-clientes">' + (D && D.clientes ? D.clientes.map(function (c) {
           return '<option value="' + esc(c.nome) + '">'; }).join('') : '') + '</datalist></div>'
@@ -1256,7 +1252,7 @@ function abrirNovoLead() {
     + '<div class="campo"><label for="nl-obs">Observação</label><textarea id="nl-obs" rows="2"></textarea></div>'
     + '<div class="acoes"><button class="pri" type="button" data-a="lead-criar">Criar lead</button>'
       + '<button type="button" data-a="fechar">Cancelar</button></div>'
-    + '<p class="nota">Leads com o mesmo nome e cidade não são duplicados. Confira possíveis vínculos com clientes após cadastrar.</p>'
+    + '<p class="nota">Leads com o mesmo nome e cidade não são duplicados. Quem compra por revenda continua com histórico e agenda próprios.</p>'
   + '</div></aside>';
   document.body.style.overflow = 'hidden';
   fichaBase=capturarCampos();
@@ -1335,7 +1331,7 @@ $('tela').addEventListener('click', function (e) {
     salvarFicha(id, {}, 'Ficha salva.');
   } else if (a === 'lead-salvar') {
     gravar('/admin/carteira/lead', {
-      id: id, cliente_id: $('fl-cliente').value, responsavel_usuario:$('fl-dono').value,
+      id: id, responsavel_usuario:$('fl-dono').value,
       etapa: $('fl-etapa').value, contato: $('fl-contato').value,
       telefone: $('fl-tel').value, cidade: $('fl-cidade').value, uf: $('fl-uf').value,
       proximo: $('fl-prox').value, proximo_em: $('fl-quando').value, motivo: $('fl-motivo').value,
@@ -1343,8 +1339,18 @@ $('tela').addEventListener('click', function (e) {
       revenda: $('fl-revenda').checked, revenda_de: $('fl-revde').value
     }, 'Lead salvo.', Object.keys(capturarCampos()).filter(function(k){return k.indexOf('fl-')===0;}));
   } else if (a === 'lead-remover') {
-    fetch('/admin/carteira/lead/' + id, { method: 'DELETE' })
-      .then(function () { fecharFicha(); atualizar(); recado('Lead removido.'); });
+    if (gravando || !window.confirm('Excluir o lead '+LEAD_IX[id].nome+' e todo o seu histórico de contatos e tarefas? Esta ação não pode ser desfeita.')) return;
+    gravando = true; b.disabled = true; estadoFicha();
+    fetch('/admin/carteira/lead/' + encodeURIComponent(id), { method: 'DELETE' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.success) throw new Error(j.erro || 'Não foi possível excluir o lead.');
+        fecharFicha(false, true);
+        return atualizar();
+      })
+      .then(function () { recado('Lead e histórico excluídos.'); })
+      .catch(function (e) { recado(e.message || 'Não foi possível excluir o lead.', true); })
+      .finally(function () { gravando = false; if (b.isConnected) b.disabled = false; estadoFicha(); });
   }
 });
 
@@ -1922,7 +1928,7 @@ function pintarProspeccao() {
         + esc(k) + ' (' + obj[k] + ')</option>';
     }).join('');
   };
-  var barra = '<div class="barra" style="margin:14px 0 11px">'
+  var barra = '<div class="pr-filtros"><div class="pr-filtros-principal">'
     + '<div class="busca"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
       + 'stroke-width="2" aria-hidden="true" style="color:var(--texto3);flex:0 0 15px">'
       + '<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>'
@@ -1933,6 +1939,7 @@ function pintarProspeccao() {
     + '<select id="pr-uf" class="filtro">' + opc(ufs, 'Todos os estados', estado.prUf) + '</select>'
     + '<label for="pr-cidade" style="position:absolute;left:-9999px">Cidade</label>'
     + '<select id="pr-cidade" class="filtro">' + opc(cids, 'Todas as cidades', estado.prCidade) + '</select>'
+    + '</div><div class="pr-filtros-secundaria">'
     + '<label for="pr-etapa" style="position:absolute;left:-9999px">Etapa</label>'
     + '<select id="pr-etapa" class="filtro"><option value="">Todas as etapas</option>'
       + ETAPAS.map(function (e) {
@@ -1944,17 +1951,17 @@ function pintarProspeccao() {
     + USUARIOS_CRM.map(function(u){return '<option value="'+u[0]+'"'+(estado.prDono===u[0]?' selected':'')+'>'+u[1]+'</option>';}).join('')+'</select>'
     + '<label for="pr-rev" style="position:absolute;left:-9999px">Revenda</label>'
     + '<select id="pr-rev" class="filtro">'
-      + '<option value="">Revenda: todos</option>'
+      + '<option value="">Compra por revenda: todos</option>'
       + '<option value="sim"' + (estado.prRevenda === 'sim' ? ' selected' : '') + '>'
-        + 'Só quem já revende (' + (P.revendas || 0) + ')</option>'
-      + '<option value="nao"' + (estado.prRevenda === 'nao' ? ' selected' : '') + '>'
-        + 'Só quem não revende</option></select>'
-    + '<span class="mono" style="color:var(--texto3);font-size:.76rem">' + vis.length + ' de ' + P.total + '</span>'
-    + '<span class="acoes" style="margin-left:auto">'
+        + 'Só clientes indiretos (' + (P.revendas || 0) + ')</option>'
+    + '<option value="nao"' + (estado.prRevenda === 'nao' ? ' selected' : '') + '>'
+      + 'Só quem não compra por revenda</option></select>'
+    + '</div><div class="pr-filtros-acoes"><span class="mono pr-contagem">' + vis.length + ' de ' + P.total + ' leads</span>'
+    + '<span class="acoes">'
       + '<button type="button" id="pr-modo">' + (estado.prView === 'funil' ? 'Ver em lista' : 'Ver o funil') + '</button>'
       + '<button type="button" class="pri" id="pr-novo">Novo lead</button></span>'
     + (prFiltrando() ? '<button type="button" id="pr-limpa" class="ficha">limpar filtros ✕</button>' : '')
-    + '</div>';
+    + '</div></div>';
 
   /* ── funil: todas as colunas rolam por dentro, ninguém fica escondido ── */
   var colunas = ETAPAS.map(function (e) {
@@ -1972,7 +1979,7 @@ function pintarProspeccao() {
   var lista = loteLeads(vis) + '<div class="tw"><table id="pr-tab"><thead><tr>'
     + '<th class="marc"><input type="checkbox" id="pr-todos" aria-label="Marcar todos"></th>'
     + '<th>Empresa</th><th>Cidade</th><th>UF</th><th>Tipo</th><th>Etapa</th>'
-    + '<th>Telefone</th><th>Instagram</th><th>Revenda</th><th>Próximo passo</th></tr></thead><tbody>'
+    + '<th>Telefone</th><th>Instagram</th><th>Compra por revenda</th><th>Próximo passo</th></tr></thead><tbody>'
     + (vis.length ? vis.map(function (x) {
         return '<tr data-l="' + esc(x.id) + '" tabindex="0">'
           + '<td class="marc"><input type="checkbox" data-pm="' + esc(x.id) + '"'
@@ -2025,7 +2032,7 @@ function pintarProspeccao() {
       + (P.conversao !== null && P.conversao !== undefined
           ? '<br>conversão de ' + P.conversao.toFixed(0) + '% sobre o que já foi decidido' : '')
       + (P.revendas ? '<br><b style="color:var(--atencao)">' + P.revendas
-          + ' já revendem Piromax</b> comprando de um cliente seu' : '') + '</div>'
+      + ' clientes indiretos</b> compram por revenda' : '') + '</div>'
     + '</div>'
     + acompanhar
     + barra
@@ -2034,10 +2041,9 @@ function pintarProspeccao() {
       + barrinhas(P.por_segmento, 'Por tipo de negócio', 'seg')
       + barrinhas(P.por_regiao, 'Por região', 'reg')
     + '</div>'
-    + (P.revendas ? '<div class="cartao" style="margin-top:12px"><h3>Quem já revende Piromax</h3>'
-        + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Leads que você marcou como abastecidos '
-        + 'por um cliente seu. Não são prospecção fria: eles já vendem o produto, só não compram direto. '
-        + 'Vale pensar duas vezes antes de puxar o cliente do seu próprio cliente.</p>'
+    + (P.revendas ? '<div class="cartao" style="margin-top:12px"><h3>Clientes indiretos</h3>'
+        + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Empresas que já compram Piromax '
+        + 'por revendas. A relação comercial existe, embora a compra não seja direta.</p>'
         + (P.por_fornecedor || []).map(function (p) {
             return '<div class="par"><span class="n">' + esc(p[0]) + '</span>'
               + '<small style="font-weight:700">' + p[1] + ' lead(s)</small></div>';
@@ -2046,7 +2052,7 @@ function pintarProspeccao() {
       + '<p class="nota" style="margin-top:4px;margin-bottom:11px">Empresa, tipo de lead, atuação, estado, cidade, '
       + 'telefone e o que mais tiver na planilha. O importador acha as colunas pelo nome do cabeçalho, '
       + 'em qualquer ordem, e entende o estado por extenso. O tipo de lead da planilha vira a etapa do funil, '
-      + 'então a qualificação que você já fez não se perde. Vínculos com clientes são conferidos por você na ficha do lead.</p>'
+      + 'então a qualificação que você já fez não se perde. A compra por revenda pode ser marcada na ficha do lead.</p>'
       + '<div class="solto" id="solto-leads"><b>Clique ou arraste a lista aqui</b>CSV com cabeçalho</div>'
       + '<div id="pv-leads"></div></div>';
 }
@@ -2057,20 +2063,20 @@ function loteLeads(vis) {
   if (!ids.length) return '';
   var nomes = (D && D.clientes ? D.clientes : []).map(function (c) {
     return '<option value="' + esc(c.nome) + '">'; }).join('');
-  return '<div class="cartao" style="padding:12px 14px;margin-bottom:11px">'
-    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
-    + '<b style="font-size:.85rem;color:var(--roxo-forte)">' + ids.length + ' marcado(s)</b>'
-    + '<input id="lp-de" class="filtro" list="lp-clientes" placeholder="Revenda de qual cliente seu…" '
-      + 'style="max-width:250px"><datalist id="lp-clientes">' + nomes + '</datalist>'
-    + '<span class="acoes">'
-      + '<button type="button" class="pri" id="lp-rev">Marcar como revenda</button>'
-      + '<button type="button" id="lp-norev">Tirar a marca</button>'
-      + '<select id="lp-etapa" class="filtro"><option value="">Mover para…</option>'
-        + ETAPAS.map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
-        + '</select>'
-      + '<button type="button" id="lp-nada">Limpar seleção</button></span></div>'
-    + '<p class="nota" style="margin-top:7px">O nome do fornecedor é opcional, mas é o que transforma '
-      + 'a marca em informação: dá para ver quantos leads cada cliente seu já abastece.</p></div>';
+  return '<div class="cartao pr-lote">'
+    + '<b class="pr-lote-titulo">' + ids.length + ' lead(s) selecionado(s)</b>'
+    + '<div class="pr-lote-campos"><div class="campo"><label for="lp-de">De qual revenda compram? (opcional)</label>'
+    + '<input id="lp-de" class="filtro" list="lp-clientes" placeholder="Nome da revenda">'
+    + '<datalist id="lp-clientes">' + nomes + '</datalist></div>'
+    + '<div class="campo"><label for="lp-etapa">Alterar etapa</label>'
+    + '<select id="lp-etapa" class="filtro"><option value="">Mover para…</option>'
+      + ETAPAS.map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
+      + '</select></div></div>'
+    + '<div class="acoes pr-lote-acoes">'
+      + '<button type="button" class="pri" id="lp-rev">Marcar compra por revenda</button>'
+      + '<button type="button" id="lp-norev">Desmarcar compra por revenda</button>'
+      + '<button type="button" id="lp-nada">Limpar seleção</button></div>'
+    + '<p class="nota pr-lote-nota">O nome da revenda é opcional. “Desmarcar” remove apenas a informação de compra por revenda; não exclui o lead.</p></div>';
 }
 
 function prFiltrando() {
@@ -2084,13 +2090,13 @@ function rotuloEtapa(e) {
 function cartaoLead(x) {
   return '<button class="lead" type="button" data-l="' + esc(x.id) + '">'
     + '<b>' + esc(x.nome)
-    + (x.revenda ? ' <span class="selo s-ritmo">revenda</span>' : '') + '</b>'
+    + (x.revenda ? ' <span class="selo s-ritmo">cliente indireto</span>' : '') + '</b>'
     + '<small>' + esc([x.cidade, x.uf].filter(Boolean).join(' / ') || 'sem cidade')
     + (x.segmento ? ' · ' + esc(x.segmento) : '')
     + (x.proximo ? ' · ' + esc(x.proximo) : '') + '</small>'
     + (proximaTarefa(x.id) ? '<small class="prazo-lead">Retorno: '+dia(proximaTarefa(x.id).prazo)+'</small>' : (['ganho','perdido'].indexOf(x.etapa)<0 ? '<small class="prazo-lead">Sem próxima ação</small>' : ''))
     + '<small class="lead-dono">Responsável: '+esc(nomeUsuario(donoRegistro(x.id)))+'</small>'
-    + (x.cliente_id ? '<small>Vinculado à carteira</small>' : x.etapa==='ganho'?'<small>Aguardando vínculo com cliente</small>':'')
+    + (x.revenda && x.revenda_de ? '<small>Compra de: '+esc(x.revenda_de)+'</small>' : '')
     + (x.instagram ? '<small class="insta">' + esc(perfil(x.instagram)) + '</small>' : '')
     + '</button>';
 }
@@ -2120,7 +2126,7 @@ $('pr-corpo').addEventListener('click', function (e) {
     var sim = e.target.id === 'lp-rev';
     gravar('/admin/carteira/lead/revenda-lote',
       { ids: marcados, revenda: sim, revenda_de: sim && $('lp-de') ? $('lp-de').value.trim() : '' },
-      sim ? 'Marcados como revenda.' : 'Marca removida.')
+      sim ? 'Compra por revenda marcada.' : 'Compra por revenda desmarcada.')
       .then(function () { estado.prMarcados = {}; pintarProspeccao(); });
     return;
   }
