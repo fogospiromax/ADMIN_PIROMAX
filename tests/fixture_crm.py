@@ -33,7 +33,7 @@ leads = [dict(id='lead-exemplo', nome='LEAD DEMONSTRAÇÃO', cidade='Cidade fict
               contato='', telefone='', instagram='', segmento='', etapa='novo',
               proximo='', proximo_em='', motivo='', obs='', cliente_id='', responsavel_usuario='tiago')]
 dados = carteira.calcular(linhas, {}, fichas, {ids[0]: date(2026, 8, 1)}, hoje,
-                          carteira.retornos_pendentes(tarefas, leads))
+                          carteira.retornos_pendentes(tarefas))
 dados['meta']['ultima_importacao'] = '2026-09-23 09:00:00'
 print(json.dumps(dict(success=True, dados=dados, fichas=fichas, inter=inter, tarefas=tarefas,
                       aliases={}, candidatos=[], prospec=carteira.analisar_leads(leads, dados, hoje),

@@ -51,8 +51,6 @@ class Connection:
             uf TEXT, email TEXT, motivo TEXT, obs TEXT, segmento TEXT, instagram TEXT,
             revenda BOOL, revenda_de TEXT, responsavel_usuario TEXT DEFAULT '');
           CREATE TABLE carteira_vendas(data TEXT, cliente TEXT, valor REAL);
-          CREATE TABLE special_orders(cliente TEXT, produto TEXT, quantidade INT,
-            urgente BOOL, concluido BOOL, criado_em TEXT, data_entrega TEXT);
           CREATE TABLE carteira_alias(apelido TEXT PRIMARY KEY, canonico TEXT);
           CREATE TABLE carteira_ficha(cliente_id TEXT PRIMARY KEY, cliente_nome TEXT, cidade TEXT,
             estado TEXT,situacao TEXT,motivo TEXT,atuacao TEXT,obs TEXT,dispensa BOOL,cadencia INT,
@@ -90,8 +88,8 @@ class RotinaTests(unittest.TestCase):
         ts = [dict(cliente='a', prazo='2026-09-01', feita=True),
               dict(cliente='a', prazo='2026-09-26', feita=False),
               dict(cliente='lead', prazo='2026-09-25', feita=False)]
-        self.assertEqual(carteira.retornos_pendentes(ts, [dict(id='lead', cliente_id='a')]),
-                         {'a': date(2026, 9, 25)})
+        self.assertEqual(carteira.retornos_pendentes(ts),
+                         {'a': date(2026, 9, 26), 'lead': date(2026, 9, 25)})
 
     def test_sem_resposta_exige_proxima_tentativa(self):
         with self.assertRaises(ValueError):
@@ -116,6 +114,33 @@ class RotinaTests(unittest.TestCase):
         self.assertFalse(b['clientes'][0]['contato_urgente'])
         self.assertEqual(b['clientes'][0]['dias_desde_compra_hoje'], 11)
 
+    def test_three_month_estimate_crosses_year_and_separates_actual_sales(self):
+        month = lambda year, number: year * 12 + number - 1
+        matriz = {month(2024, 12): 100, month(2025, 12): 300,
+                  month(2025, 1): 200, month(2026, 1): 400,
+                  month(2025, 2): 300, month(2026, 2): 500}
+        compras = [(date(2026, 12, 10), 250), (date(2026, 12, 20), 900)]
+        h = carteira.horizonte_tres_meses(matriz, compras, date(2024, 1, 1), date(2026, 12, 15))
+        self.assertEqual([m['mes'] for m in h['meses']], ['2026-12','2027-01','2027-02'])
+        self.assertEqual(h['meses'][0]['realizado'], 250)
+        self.assertEqual([m['estimativa'] for m in h['meses']], [250, 300, 400])
+        self.assertEqual(h['total_estimado'], 950)
+
+    def test_three_month_estimate_requires_comparable_history(self):
+        h = carteira.horizonte_tres_meses({}, [(date(2026, 9, 10), 100)],
+                                          date(2026, 9, 10), date(2026, 9, 23))
+        self.assertEqual(h['meses'][0]['realizado'], 100)
+        self.assertIsNone(h['meses'][0]['estimativa'])
+        self.assertIsNone(h['total_estimado'])
+
+    def test_closed_customer_has_actual_sales_without_forecast(self):
+        m = 2026 * 12 + 9 - 1
+        h = carteira.horizonte_tres_meses({m - 12: 500}, [(date(2026, 9, 10), 100)],
+                                          date(2025, 1, 1), date(2026, 9, 23), encerrado=True)
+        self.assertEqual(h['meses'][0]['realizado'], 100)
+        self.assertIsNone(h['total_estimado'])
+        self.assertTrue(h['encerrado'])
+
     def test_personal_agenda_is_selected_on_server_by_owner(self):
         dados={'clientes':[dict(id='a',responsavel_usuario='flavia'),
                            dict(id='b',responsavel_usuario='tiago'),
@@ -128,8 +153,8 @@ class RotinaTests(unittest.TestCase):
                dict(data=TODAY,tipo='contato',usuario_id='tiago')]
         pessoal=carteira.visao_pessoal(dados,leads,tarefas,inter,'flavia',TODAY)
         self.assertEqual(pessoal['clientes'],['a'])
-        self.assertEqual(pessoal['leads'],['la','lb'])
-        self.assertEqual(pessoal['tarefas'],['ta','tla','tlb'])
+        self.assertEqual(pessoal['leads'],['lb'])
+        self.assertEqual(pessoal['tarefas'],['ta','tlb'])
         self.assertEqual(pessoal['contatos_hoje'],1)
 
     def test_purchase_history_groups_same_day_without_losing_entries(self):
@@ -155,7 +180,7 @@ class EndpointTests(unittest.TestCase):
                    USUARIOS={'flavia':'Flávia','tiago':'Tiago','fernando':'Fernando'})
         functions = ['admin_carteira_contato', 'admin_carteira_tarefa_add',
                      'admin_carteira_tarefa_toggle', 'admin_lead_concluir_retorno',
-                     'admin_lead_salvar', 'admin_carteira_ficha', 'admin_carteira_atribuir',
+                     'admin_lead_salvar', 'admin_lead_excluir', 'admin_carteira_ficha', 'admin_carteira_atribuir',
                      'admin_carteira_pedidos']
         tree = ast.parse((ROOT/'app.py').read_text())
         nodes = []
@@ -236,17 +261,31 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self.rows('carteira_tarefa')[0]['concluido_em'],TODAY)
         self.assertEqual(self.rows('carteira_interacao')[0]['tipo'],'tarefa')
 
-    def test_link_only_existing_customer_without_fabricating_sales(self):
+    def test_indirect_customer_stays_a_separate_lead(self):
         self.conn.db.execute("INSERT INTO carteira_lead(id,etapa) VALUES ('l','contato')")
         self.conn.db.execute("INSERT INTO carteira_vendas(data,cliente,valor) VALUES (?, 'CLIENTE EXEMPLO',1000)",(TODAY,))
         self.conn.commit()
         bad=self.call('admin_lead_salvar',dict(id='l',cliente_id='inexistente',etapa='ganho'))
         self.assertEqual(bad[1],400)
         cid=carteira.id_cliente('CLIENTE EXEMPLO')
-        result=self.call('admin_lead_salvar',dict(id='l',cliente_id=cid,etapa='ganho'))
+        rejected=self.call('admin_lead_salvar',dict(id='l',cliente_id=cid,etapa='ganho'))
+        self.assertEqual(rejected[1],400)
+        result=self.call('admin_lead_salvar',dict(id='l',revenda=True,revenda_de='REVENDA EXEMPLO',etapa='ganho'))
         self.assertTrue(result['success'])
-        self.assertEqual(self.rows('carteira_lead')[0]['cliente_id'],cid)
+        self.assertFalse(self.rows('carteira_lead')[0]['cliente_id'])
+        self.assertEqual(self.rows('carteira_lead')[0]['revenda_de'],'REVENDA EXEMPLO')
         self.assertEqual(len(self.rows('carteira_vendas')),1)
+
+    def test_deleting_lead_removes_only_its_contacts_and_tasks(self):
+        self.conn.db.execute("INSERT INTO carteira_lead(id,nome) VALUES ('lead-test','LEAD TESTE')")
+        self.conn.db.execute("INSERT INTO carteira_interacao(id,cliente_id) VALUES ('lead-contact','lead-test'),('client-contact','client-test')")
+        self.conn.db.execute("INSERT INTO carteira_tarefa(id,cliente_id,titulo) VALUES ('lead-task','lead-test','Retornar'),('client-task','client-test','Retornar')")
+        self.conn.commit()
+        self.assertTrue(self.call('admin_lead_excluir', {}, 'lead-test')['success'])
+        self.assertEqual(self.rows('carteira_lead'), [])
+        self.assertEqual([r['id'] for r in self.rows('carteira_interacao')], ['client-contact'])
+        self.assertEqual([r['id'] for r in self.rows('carteira_tarefa')], ['client-task'])
+        self.assertEqual(self.call('admin_lead_excluir', {}, 'lead-test')[1], 404)
 
     def test_legacy_ficha_update_preserves_new_contact_fields(self):
         self.call('admin_carteira_ficha',dict(cliente_id='a',cliente_nome='EXEMPLO',telefone='123',contato='Exemplo'))
@@ -272,16 +311,13 @@ class EndpointTests(unittest.TestCase):
         self.conn.db.execute('INSERT INTO carteira_alias(apelido,canonico) VALUES (?,?)',(alias,canonical))
         self.conn.db.executemany('INSERT INTO carteira_vendas(data,cliente,valor) VALUES (?,?,?)',
             [(TODAY,canonical,100.25),(TODAY,alias,200.50),('2025-01-02',alias,50)])
-        self.conn.db.execute('INSERT INTO special_orders VALUES (?,?,?,?,?,?,?)',
-                             (alias,'Produto de exemplo',12,1,0,'23/09/2026 09:00','30/09/2026'))
         self.conn.commit()
         result=self.call('admin_carteira_pedidos',{},carteira.id_cliente(canonical))
         self.assertTrue(result['success'])
         self.assertEqual(result['total_pedidos'],2)
         self.assertEqual(result['total_lancamentos'],3)
         self.assertEqual(result['pedidos'][0]['valor'],300.75)
-        self.assertEqual(len(result['pedidos_especiais']),1)
-        self.assertEqual(result['pedidos_especiais'][0]['produto'],'Produto de exemplo')
+        self.assertNotIn('pedidos_especiais',result)
         missing=self.call('admin_carteira_pedidos',{},'desconhecido')
         self.assertEqual(missing[1],404)
 

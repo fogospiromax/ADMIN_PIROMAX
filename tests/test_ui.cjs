@@ -18,7 +18,7 @@ function boot(){
  w.HTMLElement.prototype.scrollIntoView=function(){};w.scrollTo=()=>{};w.requestAnimationFrame=fn=>fn();w.confirm=()=>false;
  w.fetch=async(url,opt={})=>{
   const body=opt.body?JSON.parse(opt.body):{};calls.push({url,body});
-  if(url.endsWith('/pedidos'))return {json:async()=>({success:true,pedidos:[{data:'2026-09-20',valor:300,registros:2,valores:[100,200]},{data:'2026-08-01',valor:50,registros:1,valores:[50]}],pedidos_especiais:[{cliente:'Cliente fictício',produto:'Produto fictício',quantidade:12,urgente:false,concluido:true,criado_em:'20/09/2026 09:00',data_entrega:'25/09/2026'}]})};
+  if(url.endsWith('/pedidos'))return {json:async()=>({success:true,pedidos:[{data:'2026-09-20',valor:300,registros:2,valores:[100,200]},{data:'2026-08-01',valor:50,registros:1,valores:[50]}]})};
   if(url==='/admin/carteira/dados')return {json:async()=>structuredClone(data)};
   if(url==='/admin/carteira/contato')data.inter.unshift({id:'new',cliente:body.cliente_id,resumo:body.resumo,resultado:body.resultado,data:data.hoje,tipo:'contato'});
   if(url==='/admin/carteira/ficha'){Object.assign(data.dados.clientes.find(c=>c.id===body.cliente_id),body);}
@@ -105,9 +105,38 @@ async function test(name,fn){let c=boot();try{await fn(c);await settle();assert.
   c.doc.querySelector('[data-tarefa="t1"]').click();await settle();
   assert.equal(c.api.agendaItens().find(t=>t.id==='t1').feita,false);
  });
- await test('Lead has contact history, next step and explicit customer linkage',c=>{
-  c.api.abrirFicha('lead-exemplo','lead');assert.ok(c.doc.getElementById('fc-nota'));assert.ok(c.doc.getElementById('fl-cliente'));
-  assert.equal(c.doc.getElementById('fl-cliente').options.length,4);
+ await test('Lead has its own history and an optional reseller source',c=>{
+  c.api.abrirFicha('lead-exemplo','lead');assert.ok(c.doc.getElementById('fc-nota'));
+  assert.ok(c.doc.getElementById('fl-revenda'));assert.ok(c.doc.getElementById('fl-revde'));
+  assert.equal(c.doc.getElementById('fl-cliente'),null);
+  assert.ok(c.doc.querySelector('[data-a="lead-remover"]'));
+ });
+ await test('Lead deletion requires confirmation and closes the drawer',async c=>{
+  c.api.abrirFicha('lead-exemplo','lead');
+  c.doc.querySelector('[data-a="lead-remover"]').click();
+  assert.ok(!c.calls.some(x=>x.url.endsWith('/lead/lead-exemplo')));
+  c.w.confirm=()=>true;
+  c.doc.querySelector('[data-a="lead-remover"]').click();
+  await settle();
+  assert.ok(c.calls.some(x=>x.url.endsWith('/lead/lead-exemplo')));
+  assert.equal(c.doc.getElementById('tela').innerHTML,'');
+ });
+ await test('Prospecting filters have balanced rows',c=>{
+  assert.equal(c.doc.querySelectorAll('.pr-filtros-principal > .busca, .pr-filtros-principal > select').length,3);
+  assert.equal(c.doc.querySelectorAll('.pr-filtros-secundaria > select').length,4);
+ });
+ await test('Legacy link does not mix a lead with a direct customer',c=>{
+  const cid=c.data.dados.clientes[0].id,lead=c.data.prospec.leads[0];
+  lead.cliente_id=cid;lead.responsavel_usuario='tiago';
+  c.data.inter.push({id:'lead-contact',cliente:lead.id,data:c.data.hoje,tipo:'contato',resumo:'Contato exclusivo do lead'});
+  c.data.tarefas.push({id:'lead-task',cliente:lead.id,titulo:'Tarefa exclusiva do lead',prazo:c.data.hoje,feita:false});
+  c.api.abrirFicha(cid,'cliente');
+  assert.ok(!c.doc.getElementById('tela').textContent.includes('Contato exclusivo do lead'));
+  assert.ok(!c.doc.getElementById('tela').textContent.includes('Tarefa exclusiva do lead'));
+  c.api.abrirFicha(lead.id,'lead');
+  assert.ok(c.doc.getElementById('tela').textContent.includes('Contato exclusivo do lead'));
+  assert.ok(c.doc.getElementById('tela').textContent.includes('Tarefa exclusiva do lead'));
+  assert.equal(c.doc.getElementById('fl-dono').value,'tiago');
  });
  await test('Customer drawer shows every imported purchase and same-day details',async c=>{
   const id=c.data.dados.clientes[0].id;
@@ -116,8 +145,18 @@ async function test(name,fn){let c=boot();try{await fn(c);await settle();assert.
   assert.equal(c.doc.getElementById('f-pedidos-contagem').textContent,'2 compras');
   assert.match(c.doc.getElementById('f-pedidos').textContent,/2 lançamentos neste dia/);
   assert.match(c.doc.getElementById('f-pedidos').textContent,/01\/08\/2026/);
-  assert.match(c.doc.getElementById('f-pedidos-especiais').textContent,/Produto fictício/);
+  assert.equal(c.doc.getElementById('f-pedidos-especiais'),null);
   assert.ok(c.calls.some(x=>x.url.endsWith('/cliente/'+id+'/pedidos')));
+ });
+ await test('Customer view separates current sales from the three-month estimate',c=>{
+  const customer=c.data.dados.clientes[0];
+  assert.ok(customer.previsao_trimestre>0);
+  const row=c.doc.querySelector('#r-tab tr[data-id="'+customer.id+'"]');
+  assert.ok(row.querySelector('.horizonte-col').textContent.includes('set/26'));
+  c.api.abrirFicha(customer.id,'cliente');
+  assert.equal(c.doc.querySelectorAll('.horizonte-mes').length,3);
+  assert.match(c.doc.querySelector('.horizonte-mes').textContent,/Vendido até hoje/);
+  assert.match(c.doc.querySelector('.horizonte-nota').textContent,/Não representa pedido confirmado/);
  });
  await test('Overview cards navigate to the appropriate customer filter',c=>{
   c.doc.querySelector('[data-visao="caindo"]').click();assert.equal(c.api.estado.tela,'registros');assert.equal(c.api.estado.view,'caindo');
