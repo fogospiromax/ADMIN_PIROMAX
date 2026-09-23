@@ -144,7 +144,7 @@ def ufs_cobertas(tokens):
 SITUACOES_ENCERRADAS = ('perdido',)
 
 
-def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
+def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None, retornos=None):
     """linhas: [(date, nome, valor)]. aliases: {nome_antigo: nome_canonico}.
     fichas: {id_do_cliente: {'situacao': 'ativo'|'pausado'|'perdido',
                              'motivo': str, 'dispensa': bool, 'cadencia': int, ...}}
@@ -155,6 +155,7 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
     aliases = {k.strip().upper(): v.strip().upper() for k, v in (aliases or {}).items()}
     fichas = fichas or {}
     contatos = contatos or {}
+    retornos = retornos or {}
     if not linhas:
         return None
 
@@ -279,6 +280,8 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
         C[n]['situacao'] = (f.get('situacao') or 'ativo')
         C[n]['motivo'] = f.get('motivo') or ''
         C[n]['encerrado'] = C[n]['situacao'] in SITUACOES_ENCERRADAS
+        for campo in ('contato', 'telefone', 'email', 'responsavel'):
+            C[n][campo] = f.get(campo) or ''
         C[n]['cidade'] = f.get('cidade') or ''
         C[n]['uf_base'] = (f.get('estado') or '').upper()
         at = f.get('atuacao') or []
@@ -305,7 +308,9 @@ def calcular(linhas, aliases=None, fichas=None, contatos=None, hoje=None):
     # ── rotina de contato ──
     HOJE = hoje or REF
     for n in nomes:
-        _rotina(C[n], fichas.get(C[n]['id'], {}), contatos.get(C[n]['id']), HOJE)
+        C[n]['dias_desde_compra_hoje'] = (HOJE - C[n]['ultima']).days
+        _rotina(C[n], fichas.get(C[n]['id'], {}), contatos.get(C[n]['id']), HOJE,
+                retornos.get(C[n]['id']))
         auto = _motivo(C[n])
         C[n]['motivo_auto'] = auto[0] if auto else 'rotina'
         C[n]['motivo_auto_rotulo'] = MOTIVO_ROTULO[C[n]['motivo_auto']]
@@ -387,12 +392,11 @@ MOTIVO_ROTULO = {
 }
 
 
-def _rotina(c, ficha, ultimo, hoje):
+def _rotina(c, ficha, ultimo, hoje, retorno=None):
     """Estado do contato de um cliente, medido contra a cadencia da classe dele.
 
-    'ultimo' e a data da ultima interacao registrada no banco, ou None para
-    quem nunca foi contactado. Quem nunca foi contactado tem atraso infinito de
-    proposito: e o topo da fila ate alguem falar com ele pela primeira vez."""
+    'ultimo' é o último contato efetivo. Um compromisso com data tem
+    precedência sobre a cadência; ausência de registro não significa atraso infinito."""
     # Ocasional nao tem rotina por definicao: e o que faz dele ocasional.
     c['dispensa_rotina'] = bool(ficha.get('dispensa')) or c.get('ocasional')
     try:
@@ -410,9 +414,18 @@ def _rotina(c, ficha, ultimo, hoje):
                                  else 'Dispensado da rotina'),
                  contato_urgente=False)
         return
+    if retorno:
+        dias = (hoje - retorno).days
+        c.update(contato_dias=(hoje - ultimo).days if ultimo else None,
+                 contato_atraso=dias, contato_urgente=dias >= 0,
+                 contato_hoje=bool(ultimo == hoje),
+                 contato_rotulo=('Retorno vencido há %d dia%s' % (dias, '' if dias == 1 else 's') if dias > 0
+                                 else 'Retorno combinado para hoje' if dias == 0
+                                 else 'Retorno combinado para ' + _br_data(retorno)))
+        return
     if not ultimo:
-        c.update(contato_dias=None, contato_atraso=10 ** 6,
-                 contato_rotulo='Nunca contactado', contato_urgente=True)
+        c.update(contato_dias=None, contato_atraso=0,
+                 contato_rotulo='Sem contato registrado', contato_urgente=True)
         return
 
     dias = (hoje - ultimo).days
@@ -913,7 +926,7 @@ ETAPAS = [
     ('novo',        'A qualificar', 'Entrou na lista e ninguém olhou ainda.'),
     ('qualificado', 'Qualificado',  'Serve como cliente, mas a conversa ainda não começou.'),
     ('contato',     'Em conversa',  'Alguém já falou, a conversa está viva.'),
-    ('ganho',       'Ganhou',       'Virou cliente. Sai daqui e entra na carteira.'),
+    ('ganho',       'Ganhou',       'Negociação fechada. Vincule ao cliente após a primeira venda importada.'),
     ('perdido',     'Perdido',      'Não vai acontecer, com o motivo escrito.'),
 ]
 ETAPAS_ABERTAS = ('novo', 'qualificado', 'contato')
@@ -1142,3 +1155,53 @@ def _contar(itens, chave):
     for x in itens:
         c[chave(x)] += 1
     return sorted(([k, v] for k, v in c.items()), key=lambda p: -p[1])
+
+
+RESULTADOS_CONTATO = {
+    'conversou': 'Conversou', 'sem_resposta': 'Sem resposta',
+    'orcamento': 'Pediu orçamento', 'retorno': 'Retorno combinado',
+    'sem_interesse': 'Sem interesse',
+}
+
+
+def validar_atividade(d, hoje):
+    """Normaliza uma atividade antes de abrir a transação de gravação."""
+    resultado = d.get('resultado') or 'conversou'
+    if resultado not in RESULTADOS_CONTATO:
+        raise ValueError('Escolha um resultado válido para o contato.')
+    resumo = str(d.get('resumo') or '').strip()[:1000]
+    if not resumo:
+        raise ValueError('Escreva um resumo do contato.')
+    quando = date.fromisoformat(str(d.get('data') or hoje))
+    if quando > date.fromisoformat(str(hoje)):
+        raise ValueError('O contato não pode estar no futuro. Agende uma tarefa.')
+    proximo = str(d.get('proximo') or '').strip()[:300]
+    prazo = str(d.get('proximo_em') or '').strip()
+    if bool(proximo) != bool(prazo):
+        raise ValueError('Preencha o próximo passo e a data juntos.')
+    if resultado in ('sem_resposta', 'retorno') and not proximo:
+        raise ValueError('Agende a próxima tentativa ou o retorno combinado.')
+    if prazo:
+        prazo = date.fromisoformat(prazo).isoformat()
+        if prazo < str(hoje):
+            raise ValueError('Agende o próximo passo para hoje ou uma data futura.')
+    return dict(resultado=resultado, resumo=resumo, data=quando.isoformat(),
+                proximo=proximo, proximo_em=prazo or None,
+                responsavel=str(d.get('responsavel') or '').strip()[:120])
+
+
+def retornos_pendentes(tarefas, leads):
+    """Menor prazo em aberto por cliente, incluindo tarefas de leads vinculados."""
+    vinculos = {l['id']: l.get('cliente_id') for l in leads if l.get('cliente_id')}
+    retorno = {}
+    for t in tarefas:
+        if t.get('feita') or not t.get('prazo'):
+            continue
+        cid = vinculos.get(t['cliente']) or t['cliente']
+        try:
+            prazo = date.fromisoformat(str(t['prazo'])[:10])
+        except ValueError:
+            continue
+        if cid not in retorno or prazo < retorno[cid]:
+            retorno[cid] = prazo
+    return retorno
