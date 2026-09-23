@@ -156,6 +156,8 @@ tbody tr[data-id]:hover td{background:#f8f7fb}
 .campo input,.campo select,.campo textarea{background:#fff;border-width:1px;border-radius:8px}
 .campo input:focus,.campo select:focus,.campo textarea:focus{box-shadow:0 0 0 3px rgba(105,69,189,.1)}
 .hist .it{padding:8px 0;line-height:1.55}
+details.saiba summary::before{content:'›';display:inline-block;margin-right:7px;font-size:1.05em;line-height:1;transition:transform .15s ease}
+details.saiba[open] summary::before{transform:rotate(90deg)}
 .funil{display:flex;gap:13px;overflow-x:auto;padding:2px 2px 12px;scroll-snap-type:x proximity}
 .funil .col{flex:0 0 clamp(220px,22vw,270px);padding:14px;border:1px solid var(--linha);border-radius:12px;background:#f3f4f7;scroll-snap-align:start;min-height:180px}
 .funil .col .cab{padding:2px 2px 9px;border-bottom:1px solid var(--linha);font-size:.81rem}
@@ -221,3 +223,37 @@ tbody tr[data-id]:hover td{background:#f8f7fb}
   .agenda-resumo>div{border-right:0;border-bottom:1px solid var(--linha)}
   .agenda-resumo>div:last-child{border-bottom:0}
 }
+
+/* Responsáveis e distribuição: legíveis sem competir com as ações principais. */
+.usuario-selo{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid var(--linha);border-radius:999px;background:#fff;color:var(--roxo-forte);font-size:.76rem;font-weight:650;white-space:nowrap}
+.usuario-selo::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--bom)}
+.distribuicao-aviso{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:0 0 16px;padding:15px 18px;border-color:#e8e0f4;background:#fbf9fe}
+.distribuicao-aviso strong{color:var(--roxo-forte)}
+.distribuicao-aviso .nota{margin-top:3px}
+.owner-edit select{width:100%;min-width:130px;max-width:180px;min-height:36px;padding:6px 9px;border:1px solid var(--linha);border-radius:8px;background:#fff;color:var(--texto);font-size:.79rem}
+.owner-edit select:hover{border-color:var(--roxo-borda)}
+.assinatura-contato{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;padding:11px 13px;border:1px solid var(--linha);border-radius:9px;background:#fafbfc;font-size:.79rem;color:var(--texto2)}
+.assinatura-contato strong{color:var(--roxo-forte)}
+.assinatura-contato small{flex-basis:100%;font-size:.72rem;color:var(--texto3)}
+
+/* Cada compra ocupa uma linha; lançamentos da mesma data podem ser abertos. */
+.pedidos-cabecalho{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
+.pedidos-contagem{font-size:.76rem;color:var(--texto2);white-space:nowrap}
+.pedidos-lista{list-style:none;margin:0;padding:0;max-height:360px;overflow:auto;border-top:1px solid var(--linha2)}
+.pedido-item{padding:11px 2px;border-bottom:1px solid var(--linha2)}
+.pedido-principal{display:flex;justify-content:space-between;align-items:baseline;gap:15px;font-size:.84rem}
+.pedido-principal time{color:var(--texto2);font-variant-numeric:tabular-nums}
+.pedido-principal strong{color:var(--roxo-forte);font-family:var(--mono);font-size:.86rem;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pedido-detalhes{margin-top:5px;font-size:.76rem;color:var(--texto2)}
+.pedido-detalhes summary{cursor:pointer;list-style:none;width:max-content;max-width:100%;padding:5px 2px;color:var(--roxo)}
+.pedido-detalhes summary::before{content:'›';display:inline-block;margin-right:6px;transition:transform .15s ease}
+.pedido-detalhes[open] summary::before{transform:rotate(90deg)}
+.pedido-detalhes ul{list-style:none;margin:4px 0 0 12px;padding:0 0 0 12px;border-left:1px solid var(--linha)}
+.pedido-detalhes li{padding:3px 0;font-variant-numeric:tabular-nums}
+.pedidos-fonte{margin-top:12px;line-height:1.45;color:var(--texto3)}
+.pedidos-subtitulo{margin-top:22px;padding-top:16px;border-top:1px solid var(--linha)}
+.pedido-principal .pedido-produto{font-family:inherit;font-size:.84rem;white-space:normal;overflow-wrap:anywhere}
+.pedido-situacao{flex:none;border:1px solid #efd9cf;border-radius:999px;padding:3px 7px;background:#fff8f3;color:#8d5437;font-size:.69rem;font-weight:650;white-space:nowrap}
+.pedido-situacao.pronto{border-color:#cfe6da;background:#f4fbf6;color:#28754b}
+.pedido-metadata{margin-top:5px;color:var(--texto2);font-size:.76rem;line-height:1.45}
+@media(max-width:600px){.usuario-selo{padding:6px 8px;font-size:.69rem}.distribuicao-aviso{display:block}.owner-edit select{min-width:112px}}

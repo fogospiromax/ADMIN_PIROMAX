@@ -20,6 +20,16 @@ var estado = { tela: 'hoje', tipo: 'todos', limite: 10, view: 'todos',
                prRevenda: '', prMarcados: {}, prAcao: '' };
 var abertaId = null;              /* ficha aberta, para reabrir após gravar */
 var abertoTipo = 'cliente';
+var USUARIO_ATUAL = document.body.dataset.usuario || '';
+var USUARIOS_CRM = [['flavia','Flávia'],['tiago','Tiago'],['fernando','Fernando']];
+function nomeUsuario(id) {
+  var u = USUARIOS_CRM.find(function(x){return x[0]===id;});
+  return u ? u[1] : 'Sem responsável';
+}
+function opcoesResponsavel(valor, vazio) {
+  return '<option value="">'+esc(vazio || 'Sem responsável')+'</option>'
+    + USUARIOS_CRM.map(function(u){return '<option value="'+u[0]+'"'+(valor===u[0]?' selected':'')+'>'+u[1]+'</option>';}).join('');
+}
 
 /* ── utilidades ─────────────────────────────────────────────────────────── */
 function $(id) { return document.getElementById(id); }
@@ -115,6 +125,7 @@ function atualizar() {
         var detalhes = Array.from($('tela').querySelectorAll('details')).map(function(el){return el.open;});
         D = j.dados; FICHA = j.fichas; INTER = j.inter; TAREFAS = j.tarefas;
         ALIASES = j.aliases; CANDIDATOS = j.candidatos; PROSPEC = j.prospec;
+        PESSOAL = j.pessoal;
         indexar();
         pintarTudo();
         if (abertaId) {
@@ -133,6 +144,13 @@ function indexar() {
   if (D && D.clientes) D.clientes.forEach(function (c) { IX[c.id] = c; });
   if (PROSPEC && PROSPEC.leads) PROSPEC.leads.forEach(function (l) { LEAD_IX[l.id] = l; });
 }
+function donoRegistro(id) {
+  var cliente = IX[id], lead = LEAD_IX[id];
+  if (cliente) return cliente.responsavel_usuario || '';
+  if (lead && lead.cliente_id && IX[lead.cliente_id])
+    return IX[lead.cliente_id].responsavel_usuario || '';
+  return lead ? lead.responsavel_usuario || '' : '';
+}
 
 /* ── navegação ──────────────────────────────────────────────────────────── */
 var TELAS = [['hoje', 'Hoje'], ['registros', 'Clientes'], ['prospeccao', 'Prospecção'],
@@ -149,14 +167,19 @@ function iconeAba(t) {
 }
 
 function pendenciasDoDia() {
-  var hoje = hojeISO(), compromissos = agendaItens().filter(function(t) { return !t.feita && t.prazo && t.prazo <= hoje; });
+  var hoje = hojeISO(), compromissos = agendaPessoalItens().filter(function(t) {
+    return !t.feita && t.prazo && t.prazo <= hoje;
+  });
   var agendados = {};
   compromissos.forEach(function(t) {
     agendados[t.cliente] = true;
     var lead = LEAD_IX[t.cliente];
     if (lead && lead.cliente_id) agendados[lead.cliente_id] = true;
   });
-  var sugestoes = D && D.fila ? D.fila.filter(function(f) { return f.contato_urgente && !agendados[f.id]; }) : [];
+  var meus = new Set((PESSOAL && PESSOAL.clientes) || []);
+  var sugestoes = D && D.fila ? D.fila.filter(function(f) {
+    return meus.has(f.id) && f.contato_urgente && !agendados[f.id];
+  }) : [];
   return {compromissos: compromissos, sugestoes: sugestoes};
 }
 
@@ -214,7 +237,12 @@ window.addEventListener('hashchange', rota);
 
 /* ═══ HOJE ═══════════════════════════════════════════════════════════════ */
 var RESULTADOS = {conversou:'Conversou', sem_resposta:'Sem resposta', orcamento:'Pediu orçamento', retorno:'Retorno combinado', sem_interesse:'Sem interesse'};
-var fichaBase = {}, focoAnterior = null, gravando = false;
+var fichaBase = {}, focoAnterior = null, gravando = false, navegandoTeclado = false;
+document.addEventListener('pointerdown', function () { navegandoTeclado = false; }, true);
+document.addEventListener('keydown', function (e) {
+  if (['Tab', 'Enter', ' ', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key))
+    navegandoTeclado = true;
+}, true);
 function hojeISO() { return (D && D.rotina && D.rotina.hoje) || HOJE; }
 function valorReferencia(tipo) {
   return {recuperar:'Base histórica', queda:'Redução no período', crescer:'Crescimento realizado', novo:'Receita no ano', ritmo:'Pedido médio'}[tipo] || 'Rotina';
@@ -270,13 +298,21 @@ function agendaItens() {
   });
   return itens.sort(function (a,b) { return (a.prazo || '9999').localeCompare(b.prazo || '9999') || a.nome.localeCompare(b.nome); });
 }
+function agendaPessoalItens() {
+  // A seleção dos IDs é feita no servidor a partir do usuário autenticado.
+  var tarefas = new Set((PESSOAL && PESSOAL.tarefas) || []);
+  var leads = new Set((PESSOAL && PESSOAL.leads) || []);
+  return agendaItens().filter(function(t) {
+    return t.origem === 'tarefa' ? tarefas.has(t.id) : leads.has(t.id);
+  });
+}
 function proximaTarefa(id) {
   var ids = [id];
   if (PROSPEC) PROSPEC.leads.forEach(function (l) { if (l.cliente_id === id) ids.push(l.id); });
   return agendaItens().filter(function (t) { return !t.feita && ids.indexOf(t.cliente) >= 0; })[0];
 }
 function pintarAgenda() {
-  var hoje = hojeISO(), itens = agendaItens(), grupos = {
+  var hoje = hojeISO(), itens = agendaPessoalItens(), grupos = {
     vencidos:itens.filter(function (t) { return !t.feita && t.prazo && t.prazo < hoje; }),
     hoje:itens.filter(function (t) { return !t.feita && t.prazo === hoje; }),
     proximos:itens.filter(function (t) { return !t.feita && t.prazo > hoje; }),
@@ -286,11 +322,11 @@ function pintarAgenda() {
   var chave = estado.agenda || 'pendentes';
   var lista = chave === 'pendentes' ? grupos.vencidos.concat(grupos.hoje) : grupos[chave];
   var filtros = [['pendentes','Vencidos e hoje',grupos.vencidos.length+grupos.hoje.length], ['proximos','Próximos',grupos.proximos.length], ['semdata','Sem data',grupos.semdata.length], ['feitos','Concluídos hoje',grupos.feitos.length]];
-  var contatosHoje = (INTER || []).filter(function(i) { return i.data === hoje && i.tipo !== 'tarefa'; }).length;
-  $('h-agenda').innerHTML = '<div class="agenda-titulo"><div><p class="olho">Seu dia</p><h2>Agenda comercial</h2><p class="nota">Compromissos de clientes e leads, em ordem de prazo.</p></div><span class="selo s-classe">'+contatosHoje+' contato(s) registrado(s) hoje</span></div>'
+  var contatosHoje = (PESSOAL && PESSOAL.contatos_hoje) || 0;
+  $('h-agenda').innerHTML = '<div class="agenda-titulo"><div><p class="olho">Seu dia</p><h2>Agenda de '+esc(nomeUsuario(USUARIO_ATUAL))+'</h2><p class="nota">Compromissos dos clientes e leads sob sua responsabilidade, em ordem de prazo.</p></div><span class="selo s-classe">'+contatosHoje+' contato(s) registrado(s) hoje</span></div>'
     + '<div class="agenda-resumo"><div><strong>'+grupos.vencidos.length+'</strong><span>compromissos vencidos</span></div><div><strong>'+grupos.hoje.length+'</strong><span>combinados para hoje</span></div><div><strong>'+grupos.feitos.length+'</strong><span>tarefas concluídas hoje</span></div></div>'
     + '<div class="fichas">'+filtros.map(function(f){return '<button class="ficha" data-agenda="'+f[0]+'" aria-pressed="'+(chave===f[0])+'">'+f[1]+' <span class="n">'+f[2]+'</span></button>';}).join('')+'</div>'
-    + (lista.length ? lista.slice(0,estado.agendaLimite || 8).map(linhaAgenda).join('') : '<p class="vazio">Nenhum compromisso nesta visão. Agende o próximo passo na ficha de um cliente ou lead.</p>')
+    + (lista.length ? lista.slice(0,estado.agendaLimite || 8).map(linhaAgenda).join('') : '<p class="vazio">Nenhum compromisso nesta visão da sua agenda.</p>')
     + (lista.length > (estado.agendaLimite || 8) ? '<button class="mais" data-agenda-mais>Mostrar mais compromissos</button>' : '');
 }
 function linhaAgenda(t) {
@@ -306,7 +342,7 @@ function formularioContato(id) {
   var log = (INTER || []).filter(function(i){return ids.indexOf(i.cliente)>=0;});
   return '<div class="cartao" id="bloco-contato"><h3>Registrar contato</h3><div class="grade g2" style="margin-top:12px">'
     + '<div class="campo"><label for="fc-resultado">Resultado</label><select id="fc-resultado">'+Object.keys(RESULTADOS).map(function(k){return '<option value="'+k+'">'+RESULTADOS[k]+'</option>';}).join('')+'</select></div>'
-    + '<div class="campo"><label for="fc-responsavel">Responsável</label><input id="fc-responsavel" maxlength="120" value="'+esc(p.responsavel || '')+'" placeholder="Quem fez o contato"></div></div>'
+    + '<div class="assinatura-contato"><span>Registrado por</span><strong>'+esc(nomeUsuario(USUARIO_ATUAL))+'</strong><small>Identificado automaticamente pelo login</small></div></div>'
     + '<div class="campo" style="margin-top:12px"><label for="fc-nota">Resumo da conversa ou tentativa</label><textarea id="fc-nota" rows="3" maxlength="1000" placeholder="O que aconteceu e o que ficou combinado?"></textarea></div>'
     + '<div class="grade g2" style="margin-top:12px"><div class="campo"><label for="fc-proximo">Próximo passo</label><input id="fc-proximo" maxlength="300" placeholder="Ex.: retornar sobre o orçamento"></div><div class="campo"><label for="fc-prazo">Data do próximo passo</label><input id="fc-prazo" type="date" min="'+hojeISO()+'"></div></div>'
     + '<div class="campo" style="margin-top:12px"><label for="fc-concluir">Concluir uma tarefa com este contato</label><select id="fc-concluir"><option value="">Não concluir tarefa</option>'+(TAREFAS||[]).filter(function(t){return t.cliente===id&&!t.feita;}).map(function(t){return '<option value="'+esc(t.id)+'">'+esc(t.titulo)+'</option>';}).join('')+'</select></div>'
@@ -349,7 +385,8 @@ document.addEventListener('click', function(e){
 function pintarHoje() {
   pintarAgenda();
   if (!D) { $('h-fila').innerHTML = semBase(); return; }
-  var fila = D.fila || [], R = D.rotina || {};
+  var meus = new Set((PESSOAL && PESSOAL.clientes) || []);
+  var fila = (D.fila || []).filter(function(f){return meus.has(f.id);}), R = D.rotina || {};
 
   // A fila de trabalho e so quem esta com contato vencido. Quem ja esta em dia,
   // quem acabou de ser contactado e quem nao tem rotina saem da contagem e
@@ -388,11 +425,14 @@ function pintarHoje() {
 
   var mostra = vis.slice(0, estado.limite);
   $('h-fila').innerHTML = mostra.length ? mostra.map(linhaFila).join('')
+    : (!meus.size && D.clientes.length ? '<div class="vazio"><b>Você ainda não tem clientes atribuídos.</b><br>'
+      + 'Os clientes existentes estão na fila até receberem um responsável.<br>'
+      + '<button type="button" class="btn-ok" data-ir-distribuicao>Ver fila de distribuição</button></div>'
     : '<p class="vazio">' + (estado.tipo === 'emdia'
         ? 'Nenhum cliente nesta visão.'
         : 'Nada pendente nesta categoria.'
           + (emdia.length ? '<br>Veja em <b>Fora da fila</b> quem já foi atendido.'
-                          : '<br>Se a fila inteira esvaziar, a rotina está em dia.')) + '</p>';
+                          : '<br>Se a fila inteira esvaziar, a rotina está em dia.')) + '</p>');
   $('h-mais').hidden = vis.length <= estado.limite;
   $('h-mais').textContent = 'Mostrar mais ' + Math.min(25, vis.length - estado.limite)
     + ' de ' + (vis.length - estado.limite) + ' restantes';
@@ -436,6 +476,9 @@ $('h-fichas').addEventListener('click', function (e) {
 });
 $('h-mais').addEventListener('click', function () { estado.limite += 25; pintarHoje(); });
 $('h-fila').addEventListener('click', function (e) {
+  if (e.target.closest('[data-ir-distribuicao]')) {
+    estado.view='semresponsavel'; irPara('registros'); pintarRegistros(); window.scrollTo(0,0); return;
+  }
   var ok = e.target.closest('button[data-c]');
   if (ok) { abrirFicha(ok.dataset.c, 'cliente', false, true); return; }
   var b = e.target.closest('.corpo[data-id]');
@@ -461,6 +504,8 @@ function semBase() {
 /* ═══ REGISTROS ══════════════════════════════════════════════════════════ */
 var VIEWS = [
   ['todos', 'Todos', function () { return true; }],
+  ['meus', 'Meus clientes', function(c) { return c.responsavel_usuario === USUARIO_ATUAL; }],
+  ['semresponsavel', 'Fila de distribuição', function(c) { return !c.responsavel_usuario; }],
   ['a', 'Classe A', function (c) { return c.classe === 'A'; }],
   ['caindo', 'Caindo', function (c) { return c.direcao === 'em queda' || c.direcao === 'queda forte'; }],
   ['parou', 'Parados', function (c) { return c.direcao === 'parou'; }],
@@ -498,6 +543,10 @@ function listaRegistros() {
 }
 function pintarRegistros() {
   if (!D) { $('r-corpo').innerHTML = '<tr><td colspan="8">' + semBase() + '</td></tr>'; return; }
+  var semDono = D.clientes.filter(function(c){return !c.responsavel_usuario;}).length;
+  $('r-distribuicao').innerHTML = semDono ? '<div class="cartao distribuicao-aviso">'
+    + '<div><strong>'+semDono+' cliente(s) na fila de distribuição</strong><p>Escolha um responsável na tabela ou marque vários clientes para atribuir em lote.</p></div>'
+    + '<button type="button" class="btn-ok" data-distribuir>Ver fila</button></div>' : '';
   $('r-views').innerHTML = VIEWS.map(function (v, vi) {
     return '<button class="ficha' + (vi > 7 && estado.view !== v[0] ? ' filtro-extra' : '') + '" type="button" data-w="' + v[0] + '" aria-pressed="'
       + (estado.view === v[0]) + '">' + v[1]
@@ -519,6 +568,8 @@ function pintarRegistros() {
         + (c.ocasional ? ' <span class="selo s-rotina">ocasional</span>' : '')
         + (c.alias && c.alias.length ? ' <span class="selo s-rotina" title="' + esc(c.alias.join(', '))
             + '">+' + c.alias.length + ' nome(s)</span>' : '') + '</td>'
+      + '<td class="owner-edit"><select data-dono="'+esc(c.id)+'" data-anterior="'+esc(c.responsavel_usuario || '')+'" aria-label="Responsável por '+esc(c.nome)+'">'
+      + opcoesResponsavel(c.responsavel_usuario || '', 'Distribuir…') + '</select></td>'
       // Cidade e estado se editam aqui mesmo. Sao 161 para preencher a mao, e
       // abrir e fechar a ficha de cada um seria tres cliques por cliente.
       + '<td class="edit extra-col"><div class="par2">'
@@ -541,7 +592,7 @@ function pintarRegistros() {
       + '<td class="num">' + dia(c.ultima) + '</td>'
       + '<td>' + (ult ? dia(ult.data) : 'Sem registro') + '<small class="celula-sub">' + esc(c.contato_rotulo) + '</small></td>'
       + '<td class="proxima-col">' + (proximaTarefa(c.id) ? esc(proximaTarefa(c.id).titulo) + '<small class="celula-sub">' + dia(proximaTarefa(c.id).prazo) + '</small>' : 'Sem ação agendada') + '</td></tr>';
-  }).join('') : '<tr><td colspan="11"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
+  }).join('') : '<tr><td colspan="14"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
   document.querySelectorAll('#r-tab th button[data-s]').forEach(function(b){
     b.parentElement.setAttribute('aria-sort', b.dataset.s === estado.ord ? (estado.asc ? 'ascending':'descending') : 'none');
   });
@@ -588,6 +639,7 @@ function salvarCelula(id, cidade, uf) {
         if (!k.success) return;
         D = k.dados; FICHA = k.fichas; INTER = k.inter; TAREFAS = k.tarefas;
         ALIASES = k.aliases; CANDIDATOS = k.candidatos; PROSPEC = k.prospec;
+        PESSOAL = k.pessoal;
         indexar();
         pintarAbas();
         pintarFiltrosRegistros();
@@ -620,6 +672,10 @@ function pintarLote() {
   box.innerHTML = '<div class="cartao" style="padding:12px 14px">'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
     + '<b style="font-size:.85rem;color:var(--roxo-forte)">' + ids.length + ' marcado(s)</b>'
+    + '<select id="lt-dono" aria-label="Responsável para os clientes marcados" class="filtro"><option value="">Atribuir responsável…</option>'
+    + USUARIOS_CRM.map(function(u){return '<option value="'+u[0]+'">'+u[1]+'</option>';}).join('')
+    + '<option value="__sem">Devolver à distribuição</option></select>'
+    + '<button type="button" id="lt-atribuir" class="btn-ok">Atribuir</button>'
     + '<select id="lt-uf" aria-label="Estado da sede" style="font:inherit;font-size:.82rem;padding:6px 9px;border:1.5px solid var(--linha);border-radius:8px">'
       + '<option value="">Estado da sede…</option>' + UFS.map(function (u) { return '<option>' + u + '</option>'; }).join('')
     + '</select>'
@@ -687,6 +743,7 @@ function painelUnificar(ids) {
 
 $('r-mais-filtros').addEventListener('click',function(){var on=$('r-views').classList.toggle('expandido');this.setAttribute('aria-expanded',String(on));this.textContent=on?'Menos filtros':'Mais filtros';});
 $('r-colunas').addEventListener('click',function(){var on=$('r-tab').classList.toggle('completo');this.setAttribute('aria-pressed',String(on));this.textContent=on?'Visão do dia a dia':'Mostrar detalhes e editar localização';});
+$('r-distribuicao').addEventListener('click',function(e){if(e.target.closest('[data-distribuir]')){estado.view='semresponsavel';pintarRegistros();}});
 $('r-limpa').addEventListener('click',function(){estado.view='todos';estado.busca=estado.uf=estado.cidade='';$('r-busca').value='';pintarRegistros();});
 $('r-views').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-w]');
@@ -701,6 +758,13 @@ $('r-todos').addEventListener('change', function (e) {
   pintarRegistros();
 });
 $('r-tab').addEventListener('change', function (e) {
+  var dono = e.target.closest('select[data-dono]');
+  if (dono) {
+    var antigo = dono.dataset.anterior;
+    gravar('/admin/carteira/atribuir',{ids:[dono.dataset.dono],responsavel_usuario:dono.value},'Responsável atualizado.')
+      .then(function(j){if(!j.success && dono.isConnected)dono.value=antigo;});
+    return;
+  }
   var cid = e.target.closest('input[data-cid]'), uf = e.target.closest('select[data-uf]');
   if (!cid && !uf) return;
   var linha = e.target.closest('tr[data-id]'), id = linha.dataset.id;
@@ -708,7 +772,7 @@ $('r-tab').addEventListener('change', function (e) {
                linha.querySelector('select[data-uf]').value);
 });
 $('r-tab').addEventListener('click', function (e) {
-  if (e.target.closest('.edit')) return;      /* editar nao abre a ficha */
+  if (e.target.closest('.edit,.owner-edit')) return;      /* editar nao abre a ficha */
   var cb = e.target.closest('input[data-m]');
   if (cb) { estado.marcados[cb.dataset.m] = cb.checked; pintarLote(); e.stopPropagation(); return; }
   var s = e.target.closest('button[data-s]');
@@ -730,7 +794,7 @@ $('r-tab').addEventListener('keydown', function (e) {
     if (prox && prox.querySelector('input[data-cid]')) prox.querySelector('input[data-cid]').focus();
     return;
   }
-  if (e.target.closest('.edit')) return;
+  if (e.target.closest('.edit,.owner-edit')) return;
   var tr2 = e.target.closest('tr[data-id]');
   if (tr2) abrirFicha(tr2.dataset.id, 'cliente');
 });
@@ -743,6 +807,14 @@ $('r-lote').addEventListener('click', function (e) {
   };
   if (e.target.id === 'lt-nada') {
     estado.marcados = {}; estado.unificando = false; pintarRegistros(); return;
+  }
+  if (e.target.id === 'lt-atribuir') {
+    var novo=$('lt-dono').value;
+    if(!novo){recado('Escolha um responsável para atribuir.',true);return;}
+    gravar('/admin/carteira/atribuir',
+      {ids:marcados(),responsavel_usuario:novo==='__sem'?'':novo},'Responsáveis atualizados.')
+      .then(function(j){if(j.success){estado.marcados={};pintarRegistros();}});
+    return;
   }
   if (e.target.id === 'lt-prio' || e.target.id === 'lt-semprio') {
     var l = marcados();
@@ -802,6 +874,7 @@ function abrirFicha(id, tipo, semRolar, focoContato) {
   abertaId = id; abertoTipo = tipo;
   history.replaceState(null, '', '#/' + (tipo === 'lead' ? 'lead' : 'cliente') + '/' + id);
   $('tela').innerHTML = tipo === 'lead' ? fichaLead(id) : fichaCliente(id);
+  if (tipo === 'cliente') carregarPedidos(id);
   document.body.style.overflow = 'hidden';
   fichaBase = capturarCampos();
   estadoFicha();
@@ -824,7 +897,8 @@ function fecharFicha(silencioso, forcar) {
   document.body.style.overflow = '';
   abertaId = null;
   if (!silencioso) history.replaceState(null, '', '#/' + estado.tela);
-  if (focoAnterior && document.contains(focoAnterior)) focoAnterior.focus({preventScroll:true});
+  if (navegandoTeclado && focoAnterior && document.contains(focoAnterior))
+    focoAnterior.focus({preventScroll:true});
   return true;
 }
 document.addEventListener('keydown', function (e) {
@@ -901,7 +975,7 @@ function fichaCliente(id) {
 
     // ── coluna da direita: o cadastro e os números ──
     + '<div class="gcol">'
-      + '<details class="cartao cadastro-detalhes"><summary>Cadastro e regras de atendimento</summary><div class="campo"><label for="fc-contato">Pessoa de contato</label><input id="fc-contato" maxlength="120" value="' + esc(c.contato || '') + '"></div><div class="campo"><label for="fc-telefone">Telefone com DDD</label><input id="fc-telefone" type="tel" maxlength="40" value="' + esc(c.telefone || '') + '"></div><div class="campo"><label for="fc-email">E-mail</label><input id="fc-email" type="email" maxlength="160" value="' + esc(c.email || '') + '"></div><div class="campo"><label for="fc-dono">Responsável pelo cliente</label><input id="fc-dono" maxlength="120" value="' + esc(c.responsavel || '') + '"></div>'
+      + '<details class="cartao cadastro-detalhes"><summary>Cadastro e regras de atendimento</summary><div class="campo"><label for="fc-contato">Pessoa de contato</label><input id="fc-contato" maxlength="120" value="' + esc(c.contato || '') + '"></div><div class="campo"><label for="fc-telefone">Telefone com DDD</label><input id="fc-telefone" type="tel" maxlength="40" value="' + esc(c.telefone || '') + '"></div><div class="campo"><label for="fc-email">E-mail</label><input id="fc-email" type="email" maxlength="160" value="' + esc(c.email || '') + '"></div><div class="campo"><label for="fc-dono">Responsável pela carteira</label><select id="fc-dono">' + opcoesResponsavel(c.responsavel_usuario || '') + '</select><p class="nota">Clientes sem responsável ficam na fila de distribuição e não entram em uma agenda pessoal.</p></div>'
       + '<div class="cartao">'
         + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
         + '<h3>Classificação</h3>'
@@ -960,11 +1034,63 @@ function fichaCliente(id) {
         + stat('Área de atuação', c.atuacao_rotulo || 'não preenchida')
         + (c.alias && c.alias.length ? stat('Também aparecia como', esc(c.alias.join(', '))) : '')
       + '</div>'
+      + '<div class="cartao pedidos-cartao"><div class="pedidos-cabecalho"><h3>Histórico de compras</h3>'
+        + '<span class="pedidos-contagem" id="f-pedidos-contagem"></span></div>'
+        + '<div id="f-pedidos" role="status"><p class="nota">Carregando compras…</p></div>'
+        + '<p class="nota pedidos-fonte">A importação de vendas contém data, cliente e valor. Lançamentos do mesmo dia são agrupados como uma compra; número do pedido e produtos não constam nessa origem.</p>'
+        + '<div class="pedidos-cabecalho pedidos-subtitulo"><h3>Pedidos especiais</h3><span class="pedidos-contagem" id="f-especiais-contagem"></span></div>'
+        + '<div id="f-pedidos-especiais" role="status"><p class="nota">Carregando pedidos…</p></div>'
+      + '</div>'
       + '<div class="cartao"><h3 style="margin-bottom:8px">Quando ele compra</h3>' + sazCliente(c.mensal) + '</div>'
     + '</div>'
 
     + '</div>'
   + '</div></aside>';
+}
+
+function carregarPedidos(id) {
+  var alvo = $('f-pedidos');
+  if (!alvo) return;
+  alvo.innerHTML = '<p class="nota">Carregando compras…</p>';
+  fetch('/admin/carteira/cliente/' + encodeURIComponent(id) + '/pedidos')
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (abertaId !== id || abertoTipo !== 'cliente' || !$('f-pedidos')) return;
+      if (!j.success) throw new Error(j.erro || 'Falha ao carregar compras.');
+      var pedidos = j.pedidos || [];
+      $('f-pedidos-contagem').textContent = pedidos.length + (pedidos.length === 1 ? ' compra' : ' compras');
+      $('f-pedidos').removeAttribute('role');
+      $('f-pedidos').innerHTML = pedidos.length ? '<ol class="pedidos-lista">'
+        + pedidos.map(function(p) {
+            return '<li class="pedido-item"><div class="pedido-principal">'
+              + '<time datetime="' + esc(p.data) + '">' + esc(dia(p.data)) + '</time>'
+              + '<strong>' + esc(cheio(p.valor)) + '</strong></div>'
+              + (p.registros > 1 ? '<details class="pedido-detalhes"><summary>'
+                + p.registros + ' lançamentos neste dia</summary><ul>'
+                + (p.valores || []).map(function(v) { return '<li>' + esc(cheio(v)) + '</li>'; }).join('')
+                + '</ul></details>' : '') + '</li>';
+          }).join('') + '</ol>' : '<p class="nota">Nenhuma compra encontrada.</p>';
+      var especiais = j.pedidos_especiais || [];
+      $('f-especiais-contagem').textContent = especiais.length
+        + (especiais.length === 1 ? ' item' : ' itens');
+      $('f-pedidos-especiais').removeAttribute('role');
+      $('f-pedidos-especiais').innerHTML = especiais.length ? '<ol class="pedidos-lista">'
+        + especiais.map(function(p) {
+            return '<li class="pedido-item"><div class="pedido-principal">'
+              + '<strong class="pedido-produto">' + esc(p.produto) + '</strong>'
+              + '<span class="pedido-situacao' + (p.concluido ? ' pronto' : '') + '">'
+              + (p.concluido ? 'Concluído' : 'Em aberto') + '</span></div>'
+              + '<div class="pedido-metadata">' + esc(p.quantidade) + ' un. · registrado em '
+              + esc(p.criado_em || '—')
+              + (p.data_entrega ? ' · entrega ' + esc(p.data_entrega) : '')
+              + (p.urgente ? ' · urgente' : '') + '</div></li>';
+          }).join('') + '</ol>' : '<p class="nota">Nenhum pedido especial vinculado a este nome de cliente.</p>';
+    }).catch(function() {
+      if (abertaId !== id || abertoTipo !== 'cliente' || !$('f-pedidos')) return;
+      $('f-pedidos').innerHTML = '<p class="nota">Não foi possível carregar as compras.</p>'
+        + '<button type="button" data-a="pedidos-recarregar">Tentar novamente</button>';
+      $('f-pedidos-especiais').innerHTML = '';
+    });
 }
 
 /* O que se olha antes de ligar fica na primeira tela, sem rolagem: tamanho do
@@ -1065,6 +1191,7 @@ function fichaLead(id) {
       + '<datalist id="fl-segs">' + ((PROSPEC && PROSPEC.por_segmento) || []).map(function (q) {
           return '<option value="' + esc(q[0]) + '">'; }).join('') + '</datalist></div>'
     + '<div class="campo"><label for="fl-cliente">Cliente vinculado</label><select id="fl-cliente"><option value="">Ainda sem vínculo</option>' + (D ? D.clientes : []).map(function(c){return '<option value="'+esc(c.id)+'"'+(L.cliente_id===c.id?' selected':'')+'>'+esc(c.nome)+'</option>';}).join('') + '</select><p class="nota">Ganho indica negociação fechada. Após importar a primeira venda, selecione o cliente correspondente. O vínculo não altera vendas.</p></div>'
+    + '<div class="campo"><label for="fl-dono">Responsável pelo lead</label><select id="fl-dono">'+opcoesResponsavel(donoRegistro(id))+'</select><p class="nota">Se estiver vinculado a um cliente, a agenda seguirá o responsável desse cliente.</p></div>'
     + '<div class="campo"><label for="fl-prox">Próximo passo</label>'
       + '<input id="fl-prox" value="' + esc(L.proximo) + '" placeholder="Ex.: mandar tabela de preço"></div>'
     + '<div class="campo"><label for="fl-quando">Para quando</label>'
@@ -1091,7 +1218,7 @@ function abrirNovoLead() {
   + '<div class="gtopo"><div style="min-width:0">'
     + '<p class="olho" style="margin-bottom:3px">Prospecção</p><h2>Novo lead</h2>'
     + '<p style="margin-top:4px;color:var(--texto2);font-size:.79rem">'
-    + 'Só o nome da empresa é obrigatório. O resto você preenche quando souber.</p>'
+    + 'Só o nome da empresa é obrigatório. O lead ficará sob sua responsabilidade.</p>'
     + '</div><button class="x" id="fx" type="button" aria-label="Fechar">✕</button></div>'
   + '<div class="gcorpo">'
     + campo('nl-nome', 'Empresa', 'placeholder="Nome como aparece na nota" autofocus')
@@ -1182,6 +1309,7 @@ $('tela').addEventListener('click', function (e) {
   if (!b) return;
   var id = abertaId, a = b.dataset.a;
 
+  if (a === 'pedidos-recarregar') { carregarPedidos(id); return; }
   if (a === 'lead-criar') { criarLead(b); return; }
   if (a === 'fechar') { fecharFicha(); return; }
   if (a === 'ir-contato') {
@@ -1204,7 +1332,8 @@ $('tela').addEventListener('click', function (e) {
     salvarFicha(id, {}, 'Ficha salva.');
   } else if (a === 'lead-salvar') {
     gravar('/admin/carteira/lead', {
-      id: id, cliente_id: $('fl-cliente').value, etapa: $('fl-etapa').value, contato: $('fl-contato').value,
+      id: id, cliente_id: $('fl-cliente').value, responsavel_usuario:$('fl-dono').value,
+      etapa: $('fl-etapa').value, contato: $('fl-contato').value,
       telefone: $('fl-tel').value, cidade: $('fl-cidade').value, uf: $('fl-uf').value,
       proximo: $('fl-prox').value, proximo_em: $('fl-quando').value, motivo: $('fl-motivo').value,
       instagram: $('fl-insta').value, segmento: $('fl-seg').value,
@@ -1224,15 +1353,16 @@ function gravarContato(id, botao) {
     recado('Informe o próximo passo e a data do retorno.',true);$('fc-proximo').focus();return;
   }
   if(prazo && prazo<hojeISO()){recado('Agende o retorno para hoje ou uma data futura.',true);return;}
-  return gravar('/admin/carteira/contato',{cliente_id:id,resumo:t,resultado:resultado,proximo:prox,proximo_em:prazo,tarefa_id:$('fc-concluir').value,responsavel:$('fc-responsavel').value},
-    'Contato salvo'+(prox?' e próximo passo agendado.':'.'),['fc-nota','fc-resultado','fc-proximo','fc-prazo','fc-responsavel','fc-concluir']);
+  return gravar('/admin/carteira/contato',{cliente_id:id,resumo:t,resultado:resultado,proximo:prox,proximo_em:prazo,tarefa_id:$('fc-concluir').value},
+    'Contato salvo'+(prox?' e próximo passo agendado.':'.'),['fc-nota','fc-resultado','fc-proximo','fc-prazo','fc-concluir']);
 }
 
 function salvarFicha(id, extra, msg) {
   var c = IX[id];
   var corpo = {
     cliente_id: id, cliente_nome: c.nome,
-    contato:$('fc-contato').value, telefone:$('fc-telefone').value, email:$('fc-email').value, responsavel:$('fc-dono').value,
+    contato:$('fc-contato').value, telefone:$('fc-telefone').value, email:$('fc-email').value,
+    responsavel_usuario:$('fc-dono').value,
     motivo: $('fc-motivo') ? $('fc-motivo').value : c.motivo,
     cidade: $('fc-cidade') ? $('fc-cidade').value : c.cidade,
     estado: $('fc-uf') ? $('fc-uf').value : c.uf_base,
@@ -1732,6 +1862,8 @@ function prVisiveis() {
         && (!estado.prUf || x.uf === estado.prUf)
         && (!estado.prCidade || (x.cidade || '') === estado.prCidade)
         && (!estado.prEtapa || x.etapa === estado.prEtapa)
+        && (!estado.prDono || (estado.prDono==='meus' ? donoRegistro(x.id)===USUARIO_ATUAL
+             : estado.prDono==='sem' ? !donoRegistro(x.id) : donoRegistro(x.id)===estado.prDono))
         && (!estado.prAcao || (estado.prAcao==='semacao' ? (!x.proximo && !proximaTarefa(x.id) && ['ganho','perdido'].indexOf(x.etapa)<0) : (proximaTarefa(x.id) && proximaTarefa(x.id).prazo && proximaTarefa(x.id).prazo<hojeISO())))
         && (!estado.prRevenda || (estado.prRevenda === 'sim' ? x.revenda : !x.revenda))
         && (!q || x.nome.toLowerCase().indexOf(q) >= 0
@@ -1804,6 +1936,9 @@ function pintarProspeccao() {
           return '<option value="' + e[0] + '"' + (estado.prEtapa === e[0] ? ' selected' : '') + '>'
             + e[1] + '</option>'; }).join('') + '</select>'
     + '<label for="pr-acao" class="sr-only">Pendências</label><select id="pr-acao" class="filtro"><option value="">Todas as pendências</option><option value="semacao"'+(estado.prAcao==='semacao'?' selected':'')+'>Sem próxima ação</option><option value="vencido"'+(estado.prAcao==='vencido'?' selected':'')+'>Retorno vencido</option></select>'
+    + '<label for="pr-dono" class="sr-only">Responsável pelo lead</label><select id="pr-dono" class="filtro">'
+    + '<option value="">Todos os responsáveis</option><option value="meus"'+(estado.prDono==='meus'?' selected':'')+'>Meus leads</option><option value="sem"'+(estado.prDono==='sem'?' selected':'')+'>Sem responsável</option>'
+    + USUARIOS_CRM.map(function(u){return '<option value="'+u[0]+'"'+(estado.prDono===u[0]?' selected':'')+'>'+u[1]+'</option>';}).join('')+'</select>'
     + '<label for="pr-rev" style="position:absolute;left:-9999px">Revenda</label>'
     + '<select id="pr-rev" class="filtro">'
       + '<option value="">Revenda: todos</option>'
@@ -1937,7 +2072,7 @@ function loteLeads(vis) {
 
 function prFiltrando() {
   return !!(prFiltro.seg || prFiltro.reg || estado.prUf || estado.prCidade
-            || estado.prEtapa || estado.prBusca || estado.prRevenda || estado.prAcao);
+            || estado.prEtapa || estado.prBusca || estado.prRevenda || estado.prAcao || estado.prDono);
 }
 function rotuloEtapa(e) {
   var x = ETAPAS.filter(function (y) { return y[0] === e; })[0];
@@ -1951,6 +2086,7 @@ function cartaoLead(x) {
     + (x.segmento ? ' · ' + esc(x.segmento) : '')
     + (x.proximo ? ' · ' + esc(x.proximo) : '') + '</small>'
     + (proximaTarefa(x.id) ? '<small class="prazo-lead">Retorno: '+dia(proximaTarefa(x.id).prazo)+'</small>' : (['ganho','perdido'].indexOf(x.etapa)<0 ? '<small class="prazo-lead">Sem próxima ação</small>' : ''))
+    + '<small class="lead-dono">Responsável: '+esc(nomeUsuario(donoRegistro(x.id)))+'</small>'
     + (x.cliente_id ? '<small>Vinculado à carteira</small>' : x.etapa==='ganho'?'<small>Aguardando vínculo com cliente</small>':'')
     + (x.instagram ? '<small class="insta">' + esc(perfil(x.instagram)) + '</small>' : '')
     + '</button>';
@@ -1993,7 +2129,7 @@ $('pr-corpo').addEventListener('click', function (e) {
   }
   if (e.target.id === 'pr-limpa') {
     prFiltro = { seg: '', reg: '' };
-    estado.prUf = estado.prCidade = estado.prEtapa = estado.prBusca = estado.prRevenda = estado.prAcao = '';
+    estado.prUf = estado.prCidade = estado.prEtapa = estado.prBusca = estado.prRevenda = estado.prAcao = estado.prDono = '';
     pintarProspeccao();
     return;
   }
@@ -2012,7 +2148,8 @@ $('pr-corpo').addEventListener('click', function (e) {
   if (e.target.closest('#solto-leads')) $('arq-leads').click();
 });
 $('pr-corpo').addEventListener('change', function (e) {
-  if (e.target.id === 'pr-acao') { estado.prAcao=e.target.value; pintarProspeccao(); }
+  if (e.target.id === 'pr-dono') { estado.prDono=e.target.value; pintarProspeccao(); }
+  else if (e.target.id === 'pr-acao') { estado.prAcao=e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-uf') { estado.prUf = e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-cidade') { estado.prCidade = e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-etapa') { estado.prEtapa = e.target.value; pintarProspeccao(); }
