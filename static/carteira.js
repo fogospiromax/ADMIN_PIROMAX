@@ -1,23 +1,23 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Carteira de clientes — Piromax
-   Cinco telas: Hoje, Registros, Prospecção, Análise, Dados.
+   Cinco telas: Hoje, Clientes, Prospecção, Resultados, Dados.
 
    A ideia que organiza tudo: uma fila, uma ficha, um relatório. A fila de Hoje
-   é o que se abre de manhã; Registros é a lista única com filtros salvos;
+   é o que se abre de manhã; Clientes é a lista única com filtros salvos;
    Análise é o relatório do mês numa página; Dados é manutenção e sai da frente.
 
-   Nada aqui guarda estado no navegador. Toda gravação vai para o Postgres e a
-   página se recarrega dos dados do servidor, sem perder rolagem nem ficha aberta.
+   Rascunhos ficam somente na memória da página. Toda gravação vai para o
+   Postgres; a atualização preserva campos ainda não salvos e a posição da ficha.
    ═══════════════════════════════════════════════════════════════════════════ */
 (function () {
 'use strict';
 
 var IX = {};                      /* id do cliente -> objeto */
 var LEAD_IX = {};                 /* id do lead -> objeto */
-var estado = { tela: 'hoje', tipo: 'todos', limite: 25, view: 'todos',
+var estado = { tela: 'hoje', tipo: 'todos', limite: 10, view: 'todos',
                busca: '', uf: '', cidade: '', ord: 'receita', asc: false, marcados: {},
                prView: 'funil', prBusca: '', prUf: '', prCidade: '', prEtapa: '',
-               prRevenda: '', prMarcados: {} };
+               prRevenda: '', prMarcados: {}, prAcao: '' };
 var abertaId = null;              /* ficha aberta, para reabrir após gravar */
 var abertoTipo = 'cliente';
 
@@ -66,25 +66,31 @@ function recado(txt, ruim) {
   var el = document.createElement('div');
   el.className = 'recado' + (ruim ? ' ruim' : '');
   el.textContent = txt;
+  el.setAttribute('role', ruim ? 'alert' : 'status');
   document.body.appendChild(el);
   setTimeout(function () { el.remove(); }, ruim ? 5200 : 2600);
 }
 
 /* Toda gravação passa por aqui: envia, recarrega do servidor e repinta sem
    perder a rolagem nem a ficha aberta. É o que evita o location.reload(). */
-function gravar(url, corpo, ok) {
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(corpo || {})
-  }).then(function (r) { return r.json(); }).then(function (j) {
-    if (!j.success) { recado(j.erro || 'Não consegui gravar.', true); return j; }
-    if (ok) recado(ok);
-    return atualizar().then(function () { return j; });
-  }).catch(function (e) {
-    recado('Falhou ao falar com o servidor: ' + e.message, true);
-    return { success: false };
-  });
+function gravar(url, corpo, ok, camposSalvos) {
+  if (gravando) { recado('Aguarde a gravação atual.', true); return Promise.resolve({success:false}); }
+  gravando = true; estadoFicha();
+  var enviados = capturarCampos();
+  return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corpo || {})})
+    .then(function(r){ return r.json(); }).then(function(j){
+      if(!j.success){recado(j.erro || 'Não foi possível salvar.',true);return j;}
+      (camposSalvos || []).forEach(function(k){
+        var atuais = capturarCampos();
+        if(atuais[k] === enviados[k]) fichaBase[k] = atuais[k];
+      });
+      if(ok) recado(ok);
+      return atualizar().then(function(){return j;}).catch(function(){
+        recado('Salvo no servidor, mas a tela não atualizou. Recarregue após guardar seus rascunhos.',true);
+        return j;
+      });
+    }).catch(function(){recado('Não foi possível confirmar a gravação. Seu texto foi mantido; confira a conexão antes de tentar novamente.',true);return {success:false};})
+    .finally(function(){gravando=false;estadoFicha();});
 }
 
 function preservandoRolagem(fn) {
@@ -101,12 +107,23 @@ function atualizar() {
   return preservandoRolagem(function () {
     return fetch('/admin/carteira/dados').then(function (r) { return r.json(); })
       .then(function (j) {
-        if (!j.success) return;
+        if (!j.success) throw new Error('Falha ao atualizar');
+        var rascunho = camposAlterados();
+        var corpo = $('tela').querySelector('.gcorpo');
+        var scroll = corpo ? corpo.scrollTop : 0;
+        var foco = document.activeElement && document.activeElement.id;
+        var detalhes = Array.from($('tela').querySelectorAll('details')).map(function(el){return el.open;});
         D = j.dados; FICHA = j.fichas; INTER = j.inter; TAREFAS = j.tarefas;
         ALIASES = j.aliases; CANDIDATOS = j.candidatos; PROSPEC = j.prospec;
         indexar();
         pintarTudo();
-        if (abertaId) abrirFicha(abertaId, abertoTipo, true);
+        if (abertaId) {
+          abrirFicha(abertaId, abertoTipo, true);
+          restaurarCampos(rascunho);
+          $('tela').querySelectorAll('details').forEach(function(el,i){el.open=!!detalhes[i];});
+          var novoCorpo=$('tela').querySelector('.gcorpo'); if(novoCorpo)novoCorpo.scrollTop=scroll;
+          if(foco && $(foco))$(foco).focus({preventScroll:true});
+        }
       });
   });
 }
@@ -118,18 +135,39 @@ function indexar() {
 }
 
 /* ── navegação ──────────────────────────────────────────────────────────── */
-var TELAS = [['hoje', 'Hoje'], ['registros', 'Registros'], ['prospeccao', 'Prospecção'],
-             ['analise', 'Análise'], ['dados', 'Dados']];
+var TELAS = [['hoje', 'Hoje'], ['registros', 'Clientes'], ['prospeccao', 'Prospecção'],
+             ['analise', 'Resultados'], ['dados', 'Dados']];
+var ICONES_ABA = {
+  hoje: '<path d="M4 5.5h16v15H4zM4 9.5h16M8 3.5v4M16 3.5v4M8 14h3l1.5 1.5L16 12"/>',
+  registros: '<circle cx="9" cy="8" r="3"/><path d="M3.5 20v-2a5.5 5.5 0 0 1 11 0v2zM17 5h4M17 9h4M17 13h4"/>',
+  prospeccao: '<path d="M4 5h16v14H4zM4 10h16M9 10v9M16 10v9"/>',
+  analise: '<path d="M4 19V5M4 19h16M8 16v-4M13 16V8M18 16V5"/>',
+  dados: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'
+};
+function iconeAba(t) {
+  return '<svg class="aba-icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONES_ABA[t] + '</svg>';
+}
+
+function pendenciasDoDia() {
+  var hoje = hojeISO(), compromissos = agendaItens().filter(function(t) { return !t.feita && t.prazo && t.prazo <= hoje; });
+  var agendados = {};
+  compromissos.forEach(function(t) {
+    agendados[t.cliente] = true;
+    var lead = LEAD_IX[t.cliente];
+    if (lead && lead.cliente_id) agendados[lead.cliente_id] = true;
+  });
+  var sugestoes = D && D.fila ? D.fila.filter(function(f) { return f.contato_urgente && !agendados[f.id]; }) : [];
+  return {compromissos: compromissos, sugestoes: sugestoes};
+}
 
 function pintarAbas() {
   $('abas').innerHTML = TELAS.map(function (t) {
     var n = '';
-    if (t[0] === 'hoje') n = D && D.fila
-      ? D.fila.filter(function (f) { return f.contato_urgente; }).length : 0;
+    if (t[0] === 'hoje') { var diaAtivo=pendenciasDoDia(); n=diaAtivo.compromissos.length+diaAtivo.sugestoes.length; }
     else if (t[0] === 'registros') n = D && D.clientes ? D.clientes.length : 0;
     else if (t[0] === 'prospeccao') n = PROSPEC ? PROSPEC.abertos : 0;
-    return '<button class="aba" role="tab" type="button" data-t="' + t[0] + '" aria-selected="'
-      + (estado.tela === t[0]) + '">' + t[1]
+    return '<button class="aba" role="tab" type="button" id="aba-' + t[0] + '" aria-controls="p-' + t[0] + '" tabindex="' + (estado.tela === t[0] ? '0' : '-1') + '" data-t="' + t[0] + '" aria-selected="'
+      + (estado.tela === t[0]) + '">' + iconeAba(t[0]) + '<span class="aba-label">' + t[1] + '</span>'
       + (n !== '' ? '<span class="cnt">' + n + '</span>' : '') + '</button>';
   }).join('');
 }
@@ -142,19 +180,32 @@ function irPara(t, semHash) {
 $('abas').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-t]');
   if (!b) return;
-  fecharFicha(true);
+  if (!fecharFicha(true)) return;
   irPara(b.dataset.t);
+  $('aba-' + b.dataset.t).focus({preventScroll:true});
   window.scrollTo(0, 0);
+});
+$('abas').addEventListener('keydown', function (e) {
+  if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  var atual = e.target.closest('button[data-t]');
+  if (!atual) return;
+  var i = TELAS.findIndex(function(t){return t[0] === atual.dataset.t;});
+  var proximo = e.key === 'Home' ? 0 : e.key === 'End' ? TELAS.length - 1 :
+    (i + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1) + TELAS.length) % TELAS.length;
+  e.preventDefault();
+  var alvo = $('aba-' + TELAS[proximo][0]);
+  if (alvo) alvo.focus();
 });
 
 function rota() {
   var h = location.hash || '#/hoje';
   var m = h.match(/^#\/cliente\/(.+)$/);
-  if (m && IX[m[1]]) { irPara('registros', true); abrirFicha(m[1], 'cliente', true); return; }
+  if (m && IX[m[1]]) { if ($('tela').innerHTML && !podeFechar()) { history.replaceState(null,'','#/'+abertoTipo+'/'+abertaId); return; } irPara('registros', true); abrirFicha(m[1], 'cliente', true); return; }
   var ml = h.match(/^#\/lead\/(.+)$/);
-  if (ml && LEAD_IX[ml[1]]) { irPara('prospeccao', true); abrirFicha(ml[1], 'lead', true); return; }
+  if (ml && LEAD_IX[ml[1]]) { if ($('tela').innerHTML && !podeFechar()) { history.replaceState(null,'','#/'+abertoTipo+'/'+abertaId); return; } irPara('prospeccao', true); abrirFicha(ml[1], 'lead', true); return; }
   var t = h.replace('#/', '').split('/')[0];
   if (!TELAS.some(function (x) { return x[0] === t; })) t = 'hoje';
+  if ($('tela').innerHTML && !fecharFicha(true)) { history.replaceState(null,'','#/'+abertoTipo+'/'+abertaId); return; }
   irPara(t, true);
   var cap = h.split('/')[2];
   if (t === 'analise' && cap && $(cap)) $(cap).scrollIntoView({ block: 'start' });
@@ -162,28 +213,158 @@ function rota() {
 window.addEventListener('hashchange', rota);
 
 /* ═══ HOJE ═══════════════════════════════════════════════════════════════ */
+var RESULTADOS = {conversou:'Conversou', sem_resposta:'Sem resposta', orcamento:'Pediu orçamento', retorno:'Retorno combinado', sem_interesse:'Sem interesse'};
+var fichaBase = {}, focoAnterior = null, gravando = false;
+function hojeISO() { return (D && D.rotina && D.rotina.hoje) || HOJE; }
+function valorReferencia(tipo) {
+  return {recuperar:'Base histórica', queda:'Redução no período', crescer:'Crescimento realizado', novo:'Receita no ano', ritmo:'Pedido médio'}[tipo] || 'Rotina';
+}
+function capturarCampos() {
+  var dados = {};
+  $('tela').querySelectorAll('input[id],textarea[id],select[id]').forEach(function (el) {
+    dados[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  $('tela').querySelectorAll('[data-at]').forEach(function (el) { dados['at:'+el.dataset.at] = el.getAttribute('aria-pressed'); });
+  return dados;
+}
+function camposAlterados() {
+  var agora = capturarCampos(), diff = {};
+  Object.keys(agora).forEach(function (k) { if (agora[k] !== fichaBase[k]) diff[k] = agora[k]; });
+  return diff;
+}
+function restaurarCampos(diff) {
+  Object.keys(diff).forEach(function (k) {
+    if (k.indexOf('at:') === 0) {
+      $('tela').querySelectorAll('[data-at]').forEach(function (el) { if ('at:'+el.dataset.at === k) el.setAttribute('aria-pressed', diff[k]); });
+      return;
+    }
+    var el = $(k); if (!el) return;
+    if (el.type === 'checkbox') el.checked = diff[k]; else el.value = diff[k];
+  });
+  estadoFicha();
+}
+function estadoFicha() {
+  var el = $('f-status');
+  if (el) el.textContent = gravando ? 'Salvando…' : Object.keys(camposAlterados()).length ? 'Alterações não salvas' : 'Sem alterações pendentes';
+}
+function podeFechar() {
+  if (gravando) { recado('Aguarde a gravação terminar.', true); return false; }
+  return !Object.keys(camposAlterados()).length || window.confirm('Há alterações não salvas nesta ficha. Deseja descartá-las?');
+}
+window.addEventListener('beforeunload', function (e) {
+  if (gravando || Object.keys(camposAlterados()).length) { e.preventDefault(); e.returnValue = ''; }
+});
+$('tela').addEventListener('input', estadoFicha);
+$('tela').addEventListener('change', estadoFicha);
+function agendaItens() {
+  var itens = (TAREFAS || []).map(function (t) {
+    var pessoa = IX[t.cliente] || LEAD_IX[t.cliente];
+    return {id:t.id, origem:'tarefa', cliente:t.cliente, nome:pessoa ? pessoa.nome : 'Cadastro a revisar',
+      tipo:IX[t.cliente] ? 'cliente' : 'lead', titulo:t.titulo, prazo:t.prazo || '', feita:t.feita,
+      concluido:t.concluido_em || '', responsavel:t.responsavel || (pessoa && pessoa.responsavel) || ''};
+  });
+  if (PROSPEC) PROSPEC.leads.forEach(function (l) {
+    if (['ganho','perdido'].indexOf(l.etapa) >= 0 || (!l.proximo && !l.proximo_em)) return;
+    itens.push({id:l.id, origem:'lead', cliente:l.id, nome:l.nome, tipo:'lead', titulo:l.proximo || 'Definir próximo passo',
+      prazo:l.proximo_em || '', feita:false, responsavel:''});
+  });
+  return itens.sort(function (a,b) { return (a.prazo || '9999').localeCompare(b.prazo || '9999') || a.nome.localeCompare(b.nome); });
+}
+function proximaTarefa(id) {
+  var ids = [id];
+  if (PROSPEC) PROSPEC.leads.forEach(function (l) { if (l.cliente_id === id) ids.push(l.id); });
+  return agendaItens().filter(function (t) { return !t.feita && ids.indexOf(t.cliente) >= 0; })[0];
+}
+function pintarAgenda() {
+  var hoje = hojeISO(), itens = agendaItens(), grupos = {
+    vencidos:itens.filter(function (t) { return !t.feita && t.prazo && t.prazo < hoje; }),
+    hoje:itens.filter(function (t) { return !t.feita && t.prazo === hoje; }),
+    proximos:itens.filter(function (t) { return !t.feita && t.prazo > hoje; }),
+    semdata:itens.filter(function (t) { return !t.feita && !t.prazo; }),
+    feitos:itens.filter(function (t) { return t.feita && t.concluido === hoje; })
+  };
+  var chave = estado.agenda || 'pendentes';
+  var lista = chave === 'pendentes' ? grupos.vencidos.concat(grupos.hoje) : grupos[chave];
+  var filtros = [['pendentes','Vencidos e hoje',grupos.vencidos.length+grupos.hoje.length], ['proximos','Próximos',grupos.proximos.length], ['semdata','Sem data',grupos.semdata.length], ['feitos','Concluídos hoje',grupos.feitos.length]];
+  var contatosHoje = (INTER || []).filter(function(i) { return i.data === hoje && i.tipo !== 'tarefa'; }).length;
+  $('h-agenda').innerHTML = '<div class="agenda-titulo"><div><p class="olho">Seu dia</p><h2>Agenda comercial</h2><p class="nota">Compromissos de clientes e leads, em ordem de prazo.</p></div><span class="selo s-classe">'+contatosHoje+' contato(s) registrado(s) hoje</span></div>'
+    + '<div class="agenda-resumo"><div><strong>'+grupos.vencidos.length+'</strong><span>compromissos vencidos</span></div><div><strong>'+grupos.hoje.length+'</strong><span>combinados para hoje</span></div><div><strong>'+grupos.feitos.length+'</strong><span>tarefas concluídas hoje</span></div></div>'
+    + '<div class="fichas">'+filtros.map(function(f){return '<button class="ficha" data-agenda="'+f[0]+'" aria-pressed="'+(chave===f[0])+'">'+f[1]+' <span class="n">'+f[2]+'</span></button>';}).join('')+'</div>'
+    + (lista.length ? lista.slice(0,estado.agendaLimite || 8).map(linhaAgenda).join('') : '<p class="vazio">Nenhum compromisso nesta visão. Agende o próximo passo na ficha de um cliente ou lead.</p>')
+    + (lista.length > (estado.agendaLimite || 8) ? '<button class="mais" data-agenda-mais>Mostrar mais compromissos</button>' : '');
+}
+function linhaAgenda(t) {
+  var atrasada = t.prazo && t.prazo < hojeISO() && !t.feita;
+  return '<div class="agenda-linha"><span class="agenda-data '+(atrasada?'neg':'')+'">'+(t.feita?'Concluída':t.prazo===hojeISO()?'Hoje':t.prazo?dia(t.prazo):'Sem data')+'</span>'
+    + '<button class="agenda-abrir" data-abrir="'+esc(t.cliente)+'" data-tipo="'+t.tipo+'"><strong>'+esc(t.titulo)+'</strong><span>'+esc(t.nome)+' · '+(t.tipo==='lead'?'Lead':'Cliente')+(t.responsavel?' · '+esc(t.responsavel):'')+'</span></button>'
+    + (t.origem==='tarefa' ? '<button class="btn-ok" data-tarefa="'+esc(t.id)+'" data-feita="'+(!t.feita)+'">'+(t.feita?'Reabrir':'Concluir tarefa')+'</button>'
+      : '<button class="btn-ok" data-concluir-lead="'+esc(t.id)+'">Concluir retorno</button>')+'</div>';
+}
+function formularioContato(id) {
+  var p = IX[id] || LEAD_IX[id] || {}, ids = [id];
+  if (PROSPEC) PROSPEC.leads.forEach(function(l){ if(l.cliente_id === id) ids.push(l.id); });
+  var log = (INTER || []).filter(function(i){return ids.indexOf(i.cliente)>=0;});
+  return '<div class="cartao" id="bloco-contato"><h3>Registrar contato</h3><div class="grade g2" style="margin-top:12px">'
+    + '<div class="campo"><label for="fc-resultado">Resultado</label><select id="fc-resultado">'+Object.keys(RESULTADOS).map(function(k){return '<option value="'+k+'">'+RESULTADOS[k]+'</option>';}).join('')+'</select></div>'
+    + '<div class="campo"><label for="fc-responsavel">Responsável</label><input id="fc-responsavel" maxlength="120" value="'+esc(p.responsavel || '')+'" placeholder="Quem fez o contato"></div></div>'
+    + '<div class="campo" style="margin-top:12px"><label for="fc-nota">Resumo da conversa ou tentativa</label><textarea id="fc-nota" rows="3" maxlength="1000" placeholder="O que aconteceu e o que ficou combinado?"></textarea></div>'
+    + '<div class="grade g2" style="margin-top:12px"><div class="campo"><label for="fc-proximo">Próximo passo</label><input id="fc-proximo" maxlength="300" placeholder="Ex.: retornar sobre o orçamento"></div><div class="campo"><label for="fc-prazo">Data do próximo passo</label><input id="fc-prazo" type="date" min="'+hojeISO()+'"></div></div>'
+    + '<div class="campo" style="margin-top:12px"><label for="fc-concluir">Concluir uma tarefa com este contato</label><select id="fc-concluir"><option value="">Não concluir tarefa</option>'+(TAREFAS||[]).filter(function(t){return t.cliente===id&&!t.feita;}).map(function(t){return '<option value="'+esc(t.id)+'">'+esc(t.titulo)+'</option>';}).join('')+'</select></div>'
+    + (LEAD_IX[id] && (LEAD_IX[id].proximo || LEAD_IX[id].proximo_em) ? '<p class="nota">O retorno já combinado será registrado como concluído; informe o novo próximo passo se houver.</p>' : '')
+    + '<p class="nota">Sem resposta não reinicia a cadência. Para tentativas sem resposta e retornos combinados, informe o próximo passo e a data.</p>'
+    + '<div class="acoes"><button class="pri" data-a="contato">Salvar contato e próximo passo</button><span class="nota">Ctrl / ⌘ + Enter</span></div>'
+    + '<details class="saiba" '+(log.length?'':'open')+'><summary>Histórico de contatos ('+log.length+')</summary><div class="hist">'
+    + (log.length?log.map(function(i){return '<div class="it"><span class="d">'+dia(i.data)+'</span><span class="t"><b>'+esc(RESULTADOS[i.resultado] || (i.tipo==='tarefa'?'Retorno concluído':'Contato'))+'</b>'+ (i.responsavel?' · '+esc(i.responsavel):'')+'<br>'+esc(i.resumo)+'</span></div>';}).join(''):'<p class="nota">Sem contato registrado.</p>')+'</div></details></div>';
+}
+function painelTarefas(id) {
+  var ids = [id];
+  if (PROSPEC) PROSPEC.leads.forEach(function(l){if(l.cliente_id===id)ids.push(l.id);});
+  var itens = agendaItens().filter(function(t){return ids.indexOf(t.cliente)>=0 && !t.feita;});
+  return '<div class="cartao"><h3>Próximas ações</h3>'+ (itens.length?itens.map(linhaAgenda).join(''):'<p class="nota">Nenhuma tarefa pendente.</p>')
+    + '<details class="saiba"><summary>Agendar tarefa sem registrar contato</summary><div class="campo"><label for="ft-titulo">O que precisa ser feito</label><input id="ft-titulo" maxlength="300"></div><div class="grade g2"><div class="campo"><label for="ft-prazo">Prazo</label><input id="ft-prazo" type="date"></div><div class="campo"><label for="ft-responsavel">Responsável</label><input id="ft-responsavel" maxlength="120"></div></div><div class="acoes"><button data-a="tarefa">Agendar tarefa</button></div></details></div>';
+}
+function atalhosContato(p) {
+  var tel = String(p.telefone || '').replace(/\D/g,'');
+  var wa = tel.length === 10 || tel.length === 11 ? '55'+tel : tel;
+  return '<div class="contato-atalhos">'+(p.contato?'<span>'+esc(p.contato)+'</span>':'')
+    + (tel?'<a class="btn-ok" href="tel:+'+wa+'">Ligar</a><a class="btn-ok" href="https://wa.me/'+wa+'" target="_blank" rel="noopener noreferrer">Abrir WhatsApp</a>':'<span class="nota">Telefone não cadastrado</span>')+'</div>';
+}
+function concluirTarefa(id, feita) {
+  return gravar('/admin/carteira/tarefa/'+encodeURIComponent(id),{feita:feita},feita?'Tarefa concluída.':'Tarefa reaberta.');
+}
+document.addEventListener('click', function(e){
+  var b=e.target.closest('[data-agenda]');
+  if(b){estado.agenda=b.dataset.agenda;estado.agendaLimite=8;pintarAgenda();return;}
+  if(e.target.closest('[data-agenda-mais]')){estado.agendaLimite=(estado.agendaLimite||8)+8;pintarAgenda();return;}
+  b=e.target.closest('[data-tarefa]');
+  if(b){concluirTarefa(b.dataset.tarefa,b.dataset.feita==='true');return;}
+  b=e.target.closest('[data-concluir-lead]');
+  if(b){var l=LEAD_IX[b.dataset.concluirLead];if(l)gravar('/admin/carteira/lead/retorno',{id:l.id,proximo:l.proximo,proximo_em:l.proximo_em},'Retorno concluído.');return;}
+  b=e.target.closest('[data-abrir]');
+  if(b){abrirFicha(b.dataset.abrir,b.dataset.tipo);return;}
+  b=e.target.closest('[data-visao]');
+  if(b){estado.view=b.dataset.visao;irPara('registros');pintarRegistros();window.scrollTo(0,0);}
+});
+
 function pintarHoje() {
+  pintarAgenda();
   if (!D) { $('h-fila').innerHTML = semBase(); return; }
   var fila = D.fila || [], R = D.rotina || {};
 
   // A fila de trabalho e so quem esta com contato vencido. Quem ja esta em dia,
   // quem acabou de ser contactado e quem nao tem rotina saem da contagem e
-  // ficam atras da etiqueta "Contato em dia". Misturar os dois faz o numero do
-  // topo prometer mais trabalho do que existe.
-  var pend = fila.filter(function (f) { return f.contato_urgente; });
+  // ficam na visão separada. Compromissos da agenda não duplicam sugestões;
+  // o total do topo mostra somente ações que ainda precisam ser feitas.
+  var pend = pendenciasDoDia().sugestoes;
   var prio = pend.filter(function (f) { return f.prioridade; });
   var emdia = fila.filter(function (f) { return !f.contato_urgente; });
-  var soma = pend.reduce(function (a, f) { return a + (f.peso || 0); }, 0);
+
 
   $('h-n').textContent = pend.length;
-  $('h-n-sub').textContent = 'clientes para contactar';
-  $('h-sub').innerHTML = '<b>' + moeda(soma) + '</b> em jogo entre eles<br>'
-    + emdia.length + ' com contato em dia'
-    + (R.feitos_hoje ? ', sendo ' + R.feitos_hoje + ' feito(s) hoje' : '')
-    + (R.ocasionais ? ' · ' + R.ocasionais + ' ocasionais fora da fila' : '') + '<br>'
-    + 'cadência: ' + (R.cadencia ? R.cadencia.A : 15) + ' dias para A e B, '
-    + (R.cadencia ? R.cadencia.C : 30) + ' para C'
-    + (R.manuais ? ' · ' + R.manuais + ' classificado(s) por você' : '');
+  $('h-n-sub').textContent = 'contatos sugeridos além da agenda';
+  $('h-sub').innerHTML = '<b>Contatos sugeridos pela rotina</b><br>'
+    + 'Compromissos com data aparecem primeiro na agenda acima.<br>'
+    + 'Os valores de cada cliente têm significados próprios e não são somados.';
 
   $('h-fichas').innerHTML = '<button class="ficha" type="button" data-f="todos" aria-pressed="'
     + (estado.tipo === 'todos') + '">Tudo <span class="n">' + pend.length + '</span></button>'
@@ -197,7 +378,7 @@ function pintarHoje() {
     + (prio.length ? '<button class="ficha prio" type="button" data-f="prioridade" aria-pressed="'
         + (estado.tipo === 'prioridade') + '">★ Prioridade <span class="n">' + prio.length + '</span></button>' : '')
     + (emdia.length ? '<button class="ficha feito" type="button" data-f="emdia" aria-pressed="'
-        + (estado.tipo === 'emdia') + '"><i style="background:var(--bom)"></i>Contato em dia '
+        + (estado.tipo === 'emdia') + '"><i style="background:var(--bom)"></i>Fora da fila '
         + '<span class="n">' + emdia.length + '</span></button>' : '');
 
   var vis;
@@ -208,9 +389,9 @@ function pintarHoje() {
   var mostra = vis.slice(0, estado.limite);
   $('h-fila').innerHTML = mostra.length ? mostra.map(linhaFila).join('')
     : '<p class="vazio">' + (estado.tipo === 'emdia'
-        ? 'Ninguém com o contato em dia ainda.'
+        ? 'Nenhum cliente nesta visão.'
         : 'Nada pendente nesta categoria.'
-          + (emdia.length ? '<br>Veja em <b>Contato em dia</b> quem já foi atendido.'
+          + (emdia.length ? '<br>Veja em <b>Fora da fila</b> quem já foi atendido.'
                           : '<br>Se a fila inteira esvaziar, a rotina está em dia.')) + '</p>';
   $('h-mais').hidden = vis.length <= estado.limite;
   $('h-mais').textContent = 'Mostrar mais ' + Math.min(25, vis.length - estado.limite)
@@ -235,7 +416,7 @@ function linhaFila(f) {
       + '<span class="selo s-classe">Classe ' + f.classe + '</span></span>'
       + '<span class="frase">' + esc(f.texto) + '</span>'
       + '<span class="marca' + (f.contato_urgente ? '' : ' ok') + '">'
-        + (f.contato_hoje ? '✓ Contato feito hoje. Volta para a fila em ' + f.cadencia + ' dias.'
+        + (f.contato_hoje ? '✓ Contato registrado hoje · ' + esc(f.contato_rotulo)
             : (f.contato_urgente ? '⏱ ' : '✓ ') + esc(f.contato_rotulo))
         + (f.marcas && f.marcas.length ? ' · ' + esc(f.marcas.join(' · ')) : '') + '</span>'
       + (f.manual ? '<span class="marca obs">✎ classificado por você. O sistema diria: '
@@ -244,23 +425,19 @@ function linhaFila(f) {
     + '</div>'
     + '<span class="dir">'
       + '<span class="valor">' + (f.peso ? moeda(f.peso) : '—') + '</span>'
-      + '<span class="leg">' + (f.peso ? 'em jogo' : 'só rotina') + '</span>'
-      + (f.contato_hoje
-          ? '<button class="btn-ok desfaz" type="button" data-u="' + esc(f.id) + '">Desfazer</button>'
-          : '<button class="btn-ok" type="button" data-c="' + esc(f.id) + '">Registrar contato</button>')
+      + '<span class="leg">' + (f.peso ? valorReferencia(f.tipo) : 'só rotina') + '</span>'
+      + '<button class="btn-ok" type="button" data-c="' + esc(f.id) + '">Registrar contato</button>'
     + '</span></div>';
 }
 $('h-fichas').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-f]');
   if (!b) return;
-  estado.tipo = b.dataset.f; estado.limite = 25; pintarHoje();
+  estado.tipo = b.dataset.f; estado.limite = 10; pintarHoje();
 });
 $('h-mais').addEventListener('click', function () { estado.limite += 25; pintarHoje(); });
 $('h-fila').addEventListener('click', function (e) {
   var ok = e.target.closest('button[data-c]');
   if (ok) { abrirFicha(ok.dataset.c, 'cliente', false, true); return; }
-  var un = e.target.closest('button[data-u]');
-  if (un) { desfazerContato(un.dataset.u, un); return; }
   var b = e.target.closest('.corpo[data-id]');
   if (b) abrirFicha(b.dataset.id, 'cliente');
 });
@@ -275,24 +452,6 @@ $('h-fila').addEventListener('keydown', function (e) {
   e.preventDefault();
   abrirFicha(b.dataset.id, 'cliente');
 });
-
-/* Desfazer é apagar o registro de hoje daquele cliente, não um estado de tela.
-   Clique errado acontece, e sem isso o jeito de corrigir seria abrir a ficha. */
-function desfazerContato(id, botao) {
-  var hoje = (D.rotina && D.rotina.hoje) || '';
-  var deles = INTER.filter(function (i) {
-    return i.cliente === id && String(i.data).slice(0, 10) === hoje;
-  });
-  if (!deles.length) { recado('Não achei o contato de hoje desse cliente.', true); return; }
-  if (botao) { botao.disabled = true; botao.textContent = 'Desfazendo…'; }
-  var p = Promise.resolve();
-  deles.forEach(function (i) {
-    p = p.then(function () {
-      return fetch('/admin/carteira/interacao/' + i.id, { method: 'DELETE' });
-    });
-  });
-  p.then(function () { recado('Contato desfeito.'); return atualizar(); });
-}
 
 function semBase() {
   return '<p class="vazio"><b>Nenhuma venda carregada ainda.</b><br>'
@@ -316,19 +475,20 @@ var VIEWS = [
   ['dispensa', 'Fora da rotina', function (c) { return c.dispensa_rotina && !c.ocasional; }],
   ['semuf', 'Sem estado', function (c) { return !c.uf_base; }]
 ];
+function normalBusca(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
 function listaRegistros() {
   if (!D) return [];
   var v = VIEWS.filter(function (x) { return x[0] === estado.view; })[0] || VIEWS[0];
   var q = estado.busca.trim().toLowerCase();
   var l = D.clientes.filter(function (c) {
     return v[2](c)
-      && (!q || c.nome.toLowerCase().indexOf(q) >= 0)
+      && (!q || normalBusca([c.nome,c.cidade,c.contato].join(' ')).indexOf(normalBusca(q)) >= 0)
       && (!estado.uf || c.uf_base === estado.uf)
       && (!estado.cidade || (c.cidade || '').toLowerCase() === estado.cidade.toLowerCase());
   });
   var k = estado.ord, s = estado.asc ? 1 : -1;
   l.sort(function (a, b) {
-    if (k === 'nome') return a.nome.localeCompare(b.nome) * (estado.asc ? 1 : -1);
+    if (['nome','primeira','ultima'].indexOf(k) >= 0) return String(a[k] || '').localeCompare(String(b[k] || '')) * s;
     var x = a[k], y = b[k];
     if (x === null || x === undefined) x = -1e15;
     if (y === null || y === undefined) y = -1e15;
@@ -338,8 +498,8 @@ function listaRegistros() {
 }
 function pintarRegistros() {
   if (!D) { $('r-corpo').innerHTML = '<tr><td colspan="8">' + semBase() + '</td></tr>'; return; }
-  $('r-views').innerHTML = VIEWS.map(function (v) {
-    return '<button class="ficha" type="button" data-w="' + v[0] + '" aria-pressed="'
+  $('r-views').innerHTML = VIEWS.map(function (v, vi) {
+    return '<button class="ficha' + (vi > 7 && estado.view !== v[0] ? ' filtro-extra' : '') + '" type="button" data-w="' + v[0] + '" aria-pressed="'
       + (estado.view === v[0]) + '">' + v[1]
       + ' <span class="n">' + D.clientes.filter(v[2]).length + '</span></button>';
   }).join('');
@@ -361,7 +521,7 @@ function pintarRegistros() {
             + '">+' + c.alias.length + ' nome(s)</span>' : '') + '</td>'
       // Cidade e estado se editam aqui mesmo. Sao 161 para preencher a mao, e
       // abrir e fechar a ficha de cada um seria tres cliques por cliente.
-      + '<td class="edit"><div class="par2">'
+      + '<td class="edit extra-col"><div class="par2">'
         + '<input class="cid" data-cid="' + esc(c.id) + '" value="' + esc(c.cidade) + '"'
         + ' placeholder="cidade" aria-label="Cidade de ' + esc(c.nome) + '">'
         + '<select class="uf" data-uf="' + esc(c.id) + '" aria-label="Estado de ' + esc(c.nome) + '">'
@@ -369,17 +529,22 @@ function pintarRegistros() {
         + UFS.map(function (u) {
             return '<option' + (c.uf_base === u ? ' selected' : '') + '>' + u + '</option>'; }).join('')
         + '</select></div></td>'
-      + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(c.atuacao_rotulo || '—') + '</td>'
+      + '<td class="extra-col" style="font-size:.79rem;color:var(--texto2)">' + esc(c.atuacao_rotulo || '—') + '</td>'
       + '<td><span class="selo s-' + d[1] + '">' + d[0] + '</span>'
         + (c.classe_manual ? ' <span class="selo s-novo">✎</span>' : '') + '</td>'
-      + '<td class="num">' + moeda(c.receita) + '</td>'
-      + '<td class="num ' + (v === null ? '' : (v >= 0 ? 'pos' : 'neg')) + '">'
+      + '<td class="num extra-col">' + moeda(c.receita) + '</td>'
+      + '<td class="num extra-col ' + (v === null ? '' : (v >= 0 ? 'pos' : 'neg')) + '">'
         + (v === null ? '—' : pct(v)) + '</td>'
-      + '<td class="num">' + cheio(c.ticket).replace('R$ ', '') + '</td>'
-      + '<td class="num">' + c.compras + '</td>'
-      + '<td class="num">' + dia(c.primeira) + '</td>'
-      + '<td class="num">' + (ult ? dia(ult.data) : '—') + '</td></tr>';
+      + '<td class="num extra-col">' + cheio(c.ticket).replace('R$ ', '') + '</td>'
+      + '<td class="num extra-col">' + c.compras + '</td>'
+      + '<td class="num extra-col">' + dia(c.primeira) + '</td>'
+      + '<td class="num">' + dia(c.ultima) + '</td>'
+      + '<td>' + (ult ? dia(ult.data) : 'Sem registro') + '<small class="celula-sub">' + esc(c.contato_rotulo) + '</small></td>'
+      + '<td class="proxima-col">' + (proximaTarefa(c.id) ? esc(proximaTarefa(c.id).titulo) + '<small class="celula-sub">' + dia(proximaTarefa(c.id).prazo) + '</small>' : 'Sem ação agendada') + '</td></tr>';
   }).join('') : '<tr><td colspan="11"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
+  document.querySelectorAll('#r-tab th button[data-s]').forEach(function(b){
+    b.parentElement.setAttribute('aria-sort', b.dataset.s === estado.ord ? (estado.asc ? 'ascending':'descending') : 'none');
+  });
   pintarLote();
 }
 
@@ -520,6 +685,9 @@ function painelUnificar(ids) {
       + '<button type="button" id="lt-uni-nao">Cancelar</button></div></div>';
 }
 
+$('r-mais-filtros').addEventListener('click',function(){var on=$('r-views').classList.toggle('expandido');this.setAttribute('aria-expanded',String(on));this.textContent=on?'Menos filtros':'Mais filtros';});
+$('r-colunas').addEventListener('click',function(){var on=$('r-tab').classList.toggle('completo');this.setAttribute('aria-pressed',String(on));this.textContent=on?'Visão do dia a dia':'Mostrar detalhes e editar localização';});
+$('r-limpa').addEventListener('click',function(){estado.view='todos';estado.busca=estado.uf=estado.cidade='';$('r-busca').value='';pintarRegistros();});
 $('r-views').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-w]');
   if (!b) return;
@@ -629,10 +797,14 @@ $('r-lote').addEventListener('click', function (e) {
 /* ═══ FICHA (gaveta com endereço próprio) ════════════════════════════════ */
 function abrirFicha(id, tipo, semRolar, focoContato) {
   tipo = tipo || 'cliente';
+  if (!semRolar && $('tela').innerHTML && !podeFechar()) return;
+  if (!semRolar) focoAnterior = document.activeElement;
   abertaId = id; abertoTipo = tipo;
   history.replaceState(null, '', '#/' + (tipo === 'lead' ? 'lead' : 'cliente') + '/' + id);
   $('tela').innerHTML = tipo === 'lead' ? fichaLead(id) : fichaCliente(id);
   document.body.style.overflow = 'hidden';
+  fichaBase = capturarCampos();
+  estadoFicha();
   // Vindo da fila, a ficha ja abre no campo de escrever o que foi conversado.
   var nota = focoContato ? $('fc-nota') : null;
   if (nota) {
@@ -645,17 +817,27 @@ function abrirFicha(id, tipo, semRolar, focoContato) {
   var x = $('fx');
   if (x && !semRolar) x.focus();
 }
-function fecharFicha(silencioso) {
+function fecharFicha(silencioso, forcar) {
+  if (!forcar && !podeFechar()) return false;
+  fichaBase = {};
   $('tela').innerHTML = '';
   document.body.style.overflow = '';
   abertaId = null;
   if (!silencioso) history.replaceState(null, '', '#/' + estado.tela);
+  if (focoAnterior && document.contains(focoAnterior)) focoAnterior.focus({preventScroll:true});
+  return true;
 }
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && $('tela').innerHTML) fecharFicha();
 });
 
 $('tela').addEventListener('keydown', function (e) {
+  if(e.key==='Tab'){
+    var itens=Array.from($('tela').querySelectorAll('.gaveta button,.gaveta a[href],.gaveta input,.gaveta select,.gaveta textarea,.gaveta summary')).filter(function(el){return !el.disabled && el.offsetParent!==null;});
+    var primeiro=itens[0],ultimo=itens[itens.length-1];
+    if(e.shiftKey && document.activeElement===primeiro){e.preventDefault();ultimo.focus();}
+    else if(!e.shiftKey && document.activeElement===ultimo){e.preventDefault();primeiro.focus();}
+  }
   if (e.target.id === 'fc-nota' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     gravarContato(abertaId, null);
@@ -679,7 +861,7 @@ function fichaCliente(id) {
     + '<h2 style="word-break:break-word">' + esc(c.nome) + '</h2>'
     + '<p style="margin-top:4px;color:var(--texto2);font-size:.79rem">' + esc(c.perfil)
       + ' · compra a cada ~' + (c.intervalo || '—') + ' dias · ' + c.compras + ' compras</p>'
-    + '<p class="url" style="margin-top:5px">' + location.origin + '/admin/carteira#/cliente/' + esc(id) + '</p>'
+    + atalhosContato(c) + '<p id="f-status" class="nota" role="status"></p>'
     + '</div><button class="x" id="fx" type="button" aria-label="Fechar ficha">✕</button></div>'
   + '<div class="gcorpo">'
     + faixaCliente(c, d, anos)
@@ -691,24 +873,11 @@ function fichaCliente(id) {
       + (f ? '<div class="cartao" style="border-color:var(--roxo-borda)">'
           + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
           + '<h3>Por que está na fila</h3><span class="mono" style="font-weight:700;font-size:.82rem">'
-          + (f.peso ? moeda(f.peso) + ' em jogo' : 'só rotina') + '</span></div>'
+          + (f.peso ? moeda(f.peso) + ' · ' + valorReferencia(f.tipo) : 'só rotina') + '</span></div>'
           + '<p class="nota" style="margin-top:5px">' + esc(f.texto) + '</p></div>' : '')
 
-      + '<div class="cartao" id="bloco-contato">'
-        + '<h3 style="margin-bottom:9px">Contatos</h3>'
-        + '<div class="campo"><label for="fc-nota">O que foi conversado</label>'
-          + '<textarea id="fc-nota" rows="3" placeholder="Ex.: falei com o Marcos, vai fechar pedido de '
-          + 'fim de ano em outubro. Pediu tabela dos morteiros de 3 polegadas."></textarea></div>'
-        + '<div class="acoes" style="margin-top:8px">'
-          + '<button class="pri" type="button" data-a="contato">Gravar contato</button>'
-          + '<span class="nota" style="margin:0;align-self:center">ou Ctrl+Enter</span></div>'
-        + (log.length ? '<div class="hist" style="margin-top:12px">' + log.map(function (i) {
-            return '<div class="it"><span class="d">' + dia(i.data) + '</span>'
-              + '<span class="t">' + esc(i.resumo) + '</span>'
-              + '<button class="del" type="button" data-del="' + esc(i.id) + '" aria-label="Apagar">✕</button></div>';
-          }).join('') + '</div>'
-          : '<p class="nota">Nenhum contato registrado ainda.</p>')
-      + '</div>'
+      + formularioContato(id)
+      + painelTarefas(id)
       + '<div class="cartao" style="border-color:' + (c.contato_urgente ? '#f0dcae' : '#cfe6da') + '">'
         + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
         + '<h3>Rotina de contato</h3><span class="mono" style="font-weight:700;font-size:.79rem;color:' + cor + '">'
@@ -717,7 +886,7 @@ function fichaCliente(id) {
         + (c.cadencia_propria ? ' (cadência própria deste cliente)' : ' (padrão da classe ' + c.classe + ')') + '. '
         + (c.dispensa_rotina
             ? 'Ele está fora da rotina e só aparece na fila se houver alerta comercial.'
-            : 'O relógio zera quando você grava o contato aqui embaixo.') + '</p>'
+            : 'Um contato efetivo reinicia a cadência. Uma tarefa com data define o próximo retorno.') + '</p>'
         + '<div class="acoes" style="margin-top:10px">'
           + '<button class="pri" type="button" data-a="prioridade">'
             + (c.prioridade ? '★ Tirar a prioridade' : '★ Marcar como prioridade') + '</button>'
@@ -726,12 +895,13 @@ function fichaCliente(id) {
         + '</div>'
         + '<div class="campo" style="margin-top:10px"><label for="fc-cad">Cadência própria, em dias</label>'
           + '<input id="fc-cad" type="number" min="1" max="365" placeholder="vazio = padrão da classe ('
-          + c.classe + ')" value="' + (c.cadencia_propria ? c.cadencia : '') + '"></div>'
+          + c.classe + ')" value="' + (c.cadencia_propria ? c.cadencia : '') + '"></div><div class="acoes"><button data-a="salvar">Salvar rotina e ficha</button></div>'
       + '</div>'
     + '</div>'
 
     // ── coluna da direita: o cadastro e os números ──
     + '<div class="gcol">'
+      + '<details class="cartao cadastro-detalhes"><summary>Cadastro e regras de atendimento</summary><div class="campo"><label for="fc-contato">Pessoa de contato</label><input id="fc-contato" maxlength="120" value="' + esc(c.contato || '') + '"></div><div class="campo"><label for="fc-telefone">Telefone com DDD</label><input id="fc-telefone" type="tel" maxlength="40" value="' + esc(c.telefone || '') + '"></div><div class="campo"><label for="fc-email">E-mail</label><input id="fc-email" type="email" maxlength="160" value="' + esc(c.email || '') + '"></div><div class="campo"><label for="fc-dono">Responsável pelo cliente</label><input id="fc-dono" maxlength="120" value="' + esc(c.responsavel || '') + '"></div>'
       + '<div class="cartao">'
         + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap">'
         + '<h3>Classificação</h3>'
@@ -751,8 +921,8 @@ function fichaCliente(id) {
                 + m[1] + '</option>'; }).join('') + '</select>'
           + '<p class="nota" style="margin-top:4px">'
           + (c.classe_manual
-              ? 'Você trocou a classificação. O rótulo é seu, mas o valor em jogo continua saindo da base, '
-                + 'não de um número inventado para combinar com o rótulo.'
+              ? 'Você trocou a classificação. O valor exibido continua vindo do histórico de vendas, '
+                + 'com o significado indicado no cartão do cliente.'
               : 'O sistema classifica sozinho pelo que os números dizem. Se ele errar, escolha aqui e '
                 + 'escreva o porquê no motivo abaixo.') + '</p></div>'
       + '</div>'
@@ -782,7 +952,7 @@ function fichaCliente(id) {
         + '<div class="acoes" style="margin-top:11px">'
           + '<button class="pri" type="button" data-a="salvar">Salvar ficha</button></div>'
       + '</div>'
-      + '<div class="cartao">'
+      + '</details><div class="cartao">'
         + stat('Maior pedido', cheio(c.tmax))
         + stat('Primeira compra', dia(c.primeira))
         + stat('Compras no total', String(c.compras))
@@ -813,7 +983,7 @@ function faixaCliente(c, d, anos) {
     + '<div class="nums">'
       + tile('Receita total', cheio(c.receita), c.compras + ' compras')
       + tile('Pedido médio', cheio(c.ticket), 'maior: ' + moeda(c.tmax))
-      + tile('Última compra', dia(c.ultima), c.recencia + ' dias atrás'
+      + tile('Última compra', dia(c.ultima), (c.dias_desde_compra_hoje === undefined ? c.recencia : c.dias_desde_compra_hoje) + ' dias atrás'
           + (c.intervalo ? ' · compra a cada ~' + c.intervalo : ''))
       + tile('No ano vs. média', v === null ? '—' : pct(v),
              d[0] + (c.ritmo ? ' · ' + c.ritmo : ''), v === null ? '' : cor)
@@ -854,7 +1024,9 @@ function fichaLead(id) {
       + esc([L.cidade, L.uf].filter(Boolean).join(' / ') || 'sem cidade') + '</p>'
     + '</div><button class="x" id="fx" type="button" aria-label="Fechar ficha">✕</button></div>'
   + '<div class="gcorpo">'
-    + '<div class="url">' + location.origin + '/admin/carteira#/lead/' + esc(id) + '</div>'
+    + '<p id="f-status" class="nota" role="status"></p>' + atalhosContato(L)
+    + formularioContato(id) + painelTarefas(id)
+    + '<details class="cartao cadastro-detalhes"><summary>Cadastro, etapa e vínculo com cliente</summary>'
     + '<div class="cartao"' + (L.revenda ? ' style="border-color:#f0dcae"' : '') + '>'
       + '<h3>Já revende Piromax?</h3>'
       + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Marque quando ele já vende produto '
@@ -892,6 +1064,7 @@ function fichaLead(id) {
       + '<input id="fl-seg" value="' + esc(L.segmento || '') + '" list="fl-segs">'
       + '<datalist id="fl-segs">' + ((PROSPEC && PROSPEC.por_segmento) || []).map(function (q) {
           return '<option value="' + esc(q[0]) + '">'; }).join('') + '</datalist></div>'
+    + '<div class="campo"><label for="fl-cliente">Cliente vinculado</label><select id="fl-cliente"><option value="">Ainda sem vínculo</option>' + (D ? D.clientes : []).map(function(c){return '<option value="'+esc(c.id)+'"'+(L.cliente_id===c.id?' selected':'')+'>'+esc(c.nome)+'</option>';}).join('') + '</select><p class="nota">Ganho indica negociação fechada. Após importar a primeira venda, selecione o cliente correspondente. O vínculo não altera vendas.</p></div>'
     + '<div class="campo"><label for="fl-prox">Próximo passo</label>'
       + '<input id="fl-prox" value="' + esc(L.proximo) + '" placeholder="Ex.: mandar tabela de preço"></div>'
     + '<div class="campo"><label for="fl-quando">Para quando</label>'
@@ -899,12 +1072,14 @@ function fichaLead(id) {
     + '<div class="campo"><label for="fl-motivo">Observação ou motivo da perda</label>'
       + '<textarea id="fl-motivo" rows="2">' + esc(L.motivo || L.obs || '') + '</textarea></div>'
     + '<div class="acoes"><button class="pri" type="button" data-a="lead-salvar">Salvar lead</button>'
-      + '<button type="button" data-a="lead-remover">Remover da lista</button></div>'
+      + '</div></details>'
   + '</div></aside>';
 }
 
 /* Lead que chega por telefone ou feira, sem planilha no meio. */
 function abrirNovoLead() {
+  if ($('tela').innerHTML && !podeFechar()) return;
+  focoAnterior=document.activeElement;
   abertaId = null; abertoTipo = 'novo';
   var campo = function (id, rot, extra) {
     return '<div class="campo"><label for="' + id + '">' + rot + '</label>'
@@ -951,16 +1126,18 @@ function abrirNovoLead() {
     + '<div class="campo"><label for="nl-obs">Observação</label><textarea id="nl-obs" rows="2"></textarea></div>'
     + '<div class="acoes"><button class="pri" type="button" data-a="lead-criar">Criar lead</button>'
       + '<button type="button" data-a="fechar">Cancelar</button></div>'
-    + '<p class="nota">Se essa empresa já estiver na lista ou já comprar da Piromax, o sistema avisa '
-      + 'em vez de criar uma segunda ficha.</p>'
+    + '<p class="nota">Leads com o mesmo nome e cidade não são duplicados. Confira possíveis vínculos com clientes após cadastrar.</p>'
   + '</div></aside>';
   document.body.style.overflow = 'hidden';
+  fichaBase=capturarCampos();
   if ($('nl-nome')) $('nl-nome').focus();
 }
 
 function criarLead(botao) {
+  if (gravando) return;
   var nome = ($('nl-nome').value || '').trim();
   if (!nome) { recado('Escreva o nome da empresa.', true); $('nl-nome').focus(); return; }
+  gravando=true;estadoFicha();
   if (botao) { botao.disabled = true; botao.textContent = 'Criando…'; }
   fetch('/admin/carteira/lead/novo', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -976,13 +1153,15 @@ function criarLead(botao) {
     if (!j.success) {
       recado(j.erro || 'Não consegui criar.', true);
       if (botao) { botao.disabled = false; botao.textContent = 'Criar lead'; }
-      if (j.id) { fecharFicha(true); atualizar().then(function () { abrirFicha(j.id, 'lead'); }); }
+      // Mantém o rascunho para o usuário corrigir os dados.
+
       return;
     }
     recado('Lead criado.');
-    fecharFicha(true);
-    atualizar().then(function () { abrirFicha(j.id, 'lead'); });
-  });
+    fecharFicha(true, true);
+    return atualizar().then(function () { abrirFicha(j.id, 'lead',true); });
+  }).catch(function(){recado('Não foi possível confirmar a criação. O rascunho foi mantido.',true);})
+    .finally(function(){gravando=false;if(botao){botao.disabled=false;botao.textContent='Criar lead';}estadoFicha();});
 }
 
 /* um único ouvinte na gaveta: ela é reconstruída a cada gravação */
@@ -990,7 +1169,7 @@ $('tela').addEventListener('click', function (e) {
   if (e.target.id === 'veu' || e.target.id === 'fx') { fecharFicha(); return; }
 
   var at = e.target.closest('button[data-at]');
-  if (at) { at.setAttribute('aria-pressed', at.getAttribute('aria-pressed') !== 'true'); return; }
+  if (at) { at.setAttribute('aria-pressed', at.getAttribute('aria-pressed') !== 'true'); estadoFicha(); return; }
 
   var del = e.target.closest('button[data-del]');
   if (del) {
@@ -1010,7 +1189,10 @@ $('tela').addEventListener('click', function (e) {
     if (alvo) { alvo.scrollIntoView({ block: 'center' }); alvo.focus(); }
     return;
   }
-  if (a === 'contato') {
+  if (a === 'tarefa') {
+    if (!$('ft-titulo').value.trim() || !$('ft-prazo').value) { recado('Informe a tarefa e o prazo.',true);return; }
+    gravar('/admin/carteira/tarefa',{cliente_id:id,titulo:$('ft-titulo').value,prazo:$('ft-prazo').value,responsavel:$('ft-responsavel').value},'Tarefa agendada.',['ft-titulo','ft-prazo','ft-responsavel']);
+  } else if (a === 'contato') {
     gravarContato(id, b);
   } else if (a === 'prioridade') {
     salvarFicha(id, { prioridade: !IX[id].prioridade },
@@ -1022,12 +1204,12 @@ $('tela').addEventListener('click', function (e) {
     salvarFicha(id, {}, 'Ficha salva.');
   } else if (a === 'lead-salvar') {
     gravar('/admin/carteira/lead', {
-      id: id, etapa: $('fl-etapa').value, contato: $('fl-contato').value,
+      id: id, cliente_id: $('fl-cliente').value, etapa: $('fl-etapa').value, contato: $('fl-contato').value,
       telefone: $('fl-tel').value, cidade: $('fl-cidade').value, uf: $('fl-uf').value,
       proximo: $('fl-prox').value, proximo_em: $('fl-quando').value, motivo: $('fl-motivo').value,
       instagram: $('fl-insta').value, segmento: $('fl-seg').value,
       revenda: $('fl-revenda').checked, revenda_de: $('fl-revde').value
-    }, 'Lead salvo.');
+    }, 'Lead salvo.', Object.keys(capturarCampos()).filter(function(k){return k.indexOf('fl-')===0;}));
   } else if (a === 'lead-remover') {
     fetch('/admin/carteira/lead/' + id, { method: 'DELETE' })
       .then(function () { fecharFicha(); atualizar(); recado('Lead removido.'); });
@@ -1035,22 +1217,22 @@ $('tela').addEventListener('click', function (e) {
 });
 
 function gravarContato(id, botao) {
-  var campo = $('fc-nota');
-  var t = campo ? (campo.value || '').trim() : '';
-  if (!t) {
-    recado('Escreva o que foi conversado antes de gravar.', true);
-    if (campo) { campo.scrollIntoView({ block: 'center' }); campo.focus(); }
-    return;
+  if(gravando) return;
+  var t=$('fc-nota').value.trim(), prox=$('fc-proximo').value.trim(), prazo=$('fc-prazo').value, resultado=$('fc-resultado').value;
+  if(!t){recado('Escreva um resumo da conversa ou tentativa.',true);$('fc-nota').focus();return;}
+  if(!!prox !== !!prazo || (['sem_resposta','retorno'].indexOf(resultado)>=0 && !prox)){
+    recado('Informe o próximo passo e a data do retorno.',true);$('fc-proximo').focus();return;
   }
-  if (botao) { botao.disabled = true; botao.textContent = 'Gravando…'; }
-  gravar('/admin/carteira/contato', { cliente_id: id, resumo: t, tipo: 'contato' },
-         'Contato registrado.');
+  if(prazo && prazo<hojeISO()){recado('Agende o retorno para hoje ou uma data futura.',true);return;}
+  return gravar('/admin/carteira/contato',{cliente_id:id,resumo:t,resultado:resultado,proximo:prox,proximo_em:prazo,tarefa_id:$('fc-concluir').value,responsavel:$('fc-responsavel').value},
+    'Contato salvo'+(prox?' e próximo passo agendado.':'.'),['fc-nota','fc-resultado','fc-proximo','fc-prazo','fc-responsavel','fc-concluir']);
 }
 
 function salvarFicha(id, extra, msg) {
   var c = IX[id];
   var corpo = {
     cliente_id: id, cliente_nome: c.nome,
+    contato:$('fc-contato').value, telefone:$('fc-telefone').value, email:$('fc-email').value, responsavel:$('fc-dono').value,
     motivo: $('fc-motivo') ? $('fc-motivo').value : c.motivo,
     cidade: $('fc-cidade') ? $('fc-cidade').value : c.cidade,
     estado: $('fc-uf') ? $('fc-uf').value : c.uf_base,
@@ -1064,7 +1246,7 @@ function salvarFicha(id, extra, msg) {
       .map(function (x) { return x.dataset.at; })
   };
   for (var k in extra) corpo[k] = extra[k];
-  return gravar('/admin/carteira/ficha', corpo, msg);
+  return gravar('/admin/carteira/ficha', corpo, msg, Object.keys(capturarCampos()).filter(function(k){return k.indexOf('at:')===0 || ['fc-motivo','fc-cidade','fc-uf','fc-sit','fc-cad','fc-tipo','fc-cman','fc-contato','fc-telefone','fc-email','fc-dono'].indexOf(k)>=0;}));
 }
 
 /* ═══ gráficos da ficha ══════════════════════════════════════════════════ */
@@ -1107,9 +1289,14 @@ var SERIE = ['var(--s3)', 'var(--s2)', 'var(--s1)'];   /* mais antigo → mais r
 
 function pintarAnalise() {
   if (!D) { $('a-corpo').innerHTML = '<div class="cartao">' + semBase() + '</div>'; return; }
-  $('a-corpo').innerHTML = capVisao() + capAnoAno() + capDirecao() + capConcentracao()
+  $('a-corpo').innerHTML = resumoResultados() + capVisao() + capAnoAno() + capDirecao() + capConcentracao()
     + capRegiao() + capProjecao();
   ligarDica();
+}
+function resumoResultados() {
+  var clientes=D.clientes, ultimo=D.anos.anos[D.anos.anos.length-1];
+  var metricas=[['caindo','Clientes em queda',clientes.filter(function(c){return c.direcao==='em queda'||c.direcao==='queda forte';}).length],['parou','Sem compras no ano',clientes.filter(function(c){return c.direcao==='parou';}).length],['vencido','Contato pendente',clientes.filter(function(c){return c.contato_urgente&&!c.encerrado&&!c.ocasional;}).length]];
+  return '<div class="resultados-resumo"><div class="cartao"><span>Receita no período comparável</span><strong>'+moeda(ultimo.receita)+'</strong><small>1º de janeiro a '+D.anos.corte+'</small></div>'+metricas.map(function(m){return '<button class="cartao" data-visao="'+m[0]+'"><span>'+m[1]+'</span><strong>'+m[2]+'</strong><small>Ver clientes →</small></button>';}).join('')+'</div>';
 }
 function anosLista() { return D.anos.anos.map(function (a) { return String(a.ano); }); }
 function corAno(a) {
@@ -1438,7 +1625,7 @@ function capRegiao() {
       + '<div class="cartao"><p class="vazio" style="padding:22px 12px">'
       + 'Nenhum dos ' + D.clientes.length + ' clientes tem estado preenchido, então este capítulo está vazio.</p>'
       + '<p class="nota">Preferi mostrar a tela vazia de verdade a inventar estados para ela ficar bonita. '
-      + 'Preencha em <b>Registros</b>, marcando vários clientes de uma vez. Este capítulo separa duas coisas '
+      + 'Preencha em <b>Clientes</b>, marcando vários clientes de uma vez. Este capítulo separa duas coisas '
       + 'que hoje se confundem: a <b>sede</b> do cliente e a <b>área onde ele vende</b>. Um cliente com sede em '
       + 'Minas que revende no Nordeste conta como Nordeste na análise de mercado e como Minas na de logística.</p>'
       + '</div></section>';
@@ -1545,6 +1732,7 @@ function prVisiveis() {
         && (!estado.prUf || x.uf === estado.prUf)
         && (!estado.prCidade || (x.cidade || '') === estado.prCidade)
         && (!estado.prEtapa || x.etapa === estado.prEtapa)
+        && (!estado.prAcao || (estado.prAcao==='semacao' ? (!x.proximo && !proximaTarefa(x.id) && ['ganho','perdido'].indexOf(x.etapa)<0) : (proximaTarefa(x.id) && proximaTarefa(x.id).prazo && proximaTarefa(x.id).prazo<hojeISO())))
         && (!estado.prRevenda || (estado.prRevenda === 'sim' ? x.revenda : !x.revenda))
         && (!q || x.nome.toLowerCase().indexOf(q) >= 0
              || (x.cidade || '').toLowerCase().indexOf(q) >= 0);
@@ -1555,7 +1743,7 @@ function pintarProspeccao() {
   var P = PROSPEC || { leads: [], etapas: [], total: 0, abertos: 0, ganhos: 0, perdidos: 0,
                        revendas: 0, por_segmento: [], por_regiao: [], cidades: [],
                        acompanhar: { vencidos: [], hoje: [], proximos: [], sem_data: [], total: 0 } };
-  var vis = prVisiveis();
+  var vis = prVisiveis().sort(function(a,b){var ta=proximaTarefa(a.id),tb=proximaTarefa(b.id);return ((ta && ta.prazo)||'9999').localeCompare((tb && tb.prazo)||'9999')||a.nome.localeCompare(b.nome);});
   var A = P.acompanhar || { vencidos: [], hoje: [], proximos: [], sem_data: [], total: 0 };
 
   /* ── Para acompanhar: o que ficou combinado e tem data ── */
@@ -1571,7 +1759,7 @@ function pintarProspeccao() {
   var acompanhar = '<div class="cartao"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">'
     + '<h3>Para acompanhar</h3>'
     + '<span class="mono" style="color:var(--texto3);font-size:.76rem">'
-    + (A.total ? A.total + ' combinado(s) com data' : 'nada combinado ainda') + '</span>'
+    + (A.total ? A.total + ' próximo(s) passo(s)' : 'nada combinado ainda') + '</span>'
     + (A.vencidos.length ? '<span class="selo s-queda" style="margin-left:auto">'
         + A.vencidos.length + ' vencido(s)</span>' : '') + '</div>'
     + (A.total
@@ -1615,6 +1803,7 @@ function pintarProspeccao() {
       + ETAPAS.map(function (e) {
           return '<option value="' + e[0] + '"' + (estado.prEtapa === e[0] ? ' selected' : '') + '>'
             + e[1] + '</option>'; }).join('') + '</select>'
+    + '<label for="pr-acao" class="sr-only">Pendências</label><select id="pr-acao" class="filtro"><option value="">Todas as pendências</option><option value="semacao"'+(estado.prAcao==='semacao'?' selected':'')+'>Sem próxima ação</option><option value="vencido"'+(estado.prAcao==='vencido'?' selected':'')+'>Retorno vencido</option></select>'
     + '<label for="pr-rev" style="position:absolute;left:-9999px">Revenda</label>'
     + '<select id="pr-rev" class="filtro">'
       + '<option value="">Revenda: todos</option>'
@@ -1719,7 +1908,7 @@ function pintarProspeccao() {
       + '<p class="nota" style="margin-top:4px;margin-bottom:11px">Empresa, tipo de lead, atuação, estado, cidade, '
       + 'telefone e o que mais tiver na planilha. O importador acha as colunas pelo nome do cabeçalho, '
       + 'em qualquer ordem, e entende o estado por extenso. O tipo de lead da planilha vira a etapa do funil, '
-      + 'então a qualificação que você já fez não se perde. Quem já está na carteira é marcado na hora.</p>'
+      + 'então a qualificação que você já fez não se perde. Vínculos com clientes são conferidos por você na ficha do lead.</p>'
       + '<div class="solto" id="solto-leads"><b>Clique ou arraste a lista aqui</b>CSV com cabeçalho</div>'
       + '<div id="pv-leads"></div></div>';
 }
@@ -1748,7 +1937,7 @@ function loteLeads(vis) {
 
 function prFiltrando() {
   return !!(prFiltro.seg || prFiltro.reg || estado.prUf || estado.prCidade
-            || estado.prEtapa || estado.prBusca || estado.prRevenda);
+            || estado.prEtapa || estado.prBusca || estado.prRevenda || estado.prAcao);
 }
 function rotuloEtapa(e) {
   var x = ETAPAS.filter(function (y) { return y[0] === e; })[0];
@@ -1761,6 +1950,8 @@ function cartaoLead(x) {
     + '<small>' + esc([x.cidade, x.uf].filter(Boolean).join(' / ') || 'sem cidade')
     + (x.segmento ? ' · ' + esc(x.segmento) : '')
     + (x.proximo ? ' · ' + esc(x.proximo) : '') + '</small>'
+    + (proximaTarefa(x.id) ? '<small class="prazo-lead">Retorno: '+dia(proximaTarefa(x.id).prazo)+'</small>' : (['ganho','perdido'].indexOf(x.etapa)<0 ? '<small class="prazo-lead">Sem próxima ação</small>' : ''))
+    + (x.cliente_id ? '<small>Vinculado à carteira</small>' : x.etapa==='ganho'?'<small>Aguardando vínculo com cliente</small>':'')
     + (x.instagram ? '<small class="insta">' + esc(perfil(x.instagram)) + '</small>' : '')
     + '</button>';
 }
@@ -1802,7 +1993,7 @@ $('pr-corpo').addEventListener('click', function (e) {
   }
   if (e.target.id === 'pr-limpa') {
     prFiltro = { seg: '', reg: '' };
-    estado.prUf = estado.prCidade = estado.prEtapa = estado.prBusca = estado.prRevenda = '';
+    estado.prUf = estado.prCidade = estado.prEtapa = estado.prBusca = estado.prRevenda = estado.prAcao = '';
     pintarProspeccao();
     return;
   }
@@ -1821,7 +2012,8 @@ $('pr-corpo').addEventListener('click', function (e) {
   if (e.target.closest('#solto-leads')) $('arq-leads').click();
 });
 $('pr-corpo').addEventListener('change', function (e) {
-  if (e.target.id === 'pr-uf') { estado.prUf = e.target.value; pintarProspeccao(); }
+  if (e.target.id === 'pr-acao') { estado.prAcao=e.target.value; pintarProspeccao(); }
+  else if (e.target.id === 'pr-uf') { estado.prUf = e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-cidade') { estado.prCidade = e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-etapa') { estado.prEtapa = e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-rev') { estado.prRevenda = e.target.value; pintarProspeccao(); }
@@ -1880,7 +2072,7 @@ function pintarDados() {
             + 'cursor:pointer;font:inherit;text-decoration:underline">desfazer alguma</button></p>' : '')
     + '</div>'
     + '<div class="cartao" style="margin-top:12px"><h3>Preencher estado e área de atuação</h3>'
-      + '<p class="nota" style="margin-top:4px">Isso se faz em <b>Registros</b>: marque vários clientes na lista e '
+      + '<p class="nota" style="margin-top:4px">Isso se faz em <b>Clientes</b>: marque vários clientes na lista e '
       + 'aplique de uma vez. A barra de ações aparece assim que você marca o primeiro.'
       + (D ? ' Faltam <b>' + D.clientes.filter(function (c) { return !c.uf_base; }).length
             + ' clientes sem estado</b>.' : '') + '</p>'
@@ -1992,8 +2184,7 @@ function pintarTudo() {
   pintarAnalise();
   pintarDados();
   if (D) {
-    $('sub-periodo').textContent = D.meta.clientes + ' clientes · '
-      + D.meta.notas.toLocaleString('pt-BR') + ' notas · base até ' + dia(D.meta.ref);
+    $('sub-periodo').textContent = 'Vendas até ' + dia(D.meta.ref) + ' · Importação: ' + (D.meta.ultima_importacao ? dia(D.meta.ultima_importacao.slice(0,10)) : 'sem registro anterior');
     $('rodape').innerHTML = 'Base da Piromax: ' + D.meta.notas.toLocaleString('pt-BR') + ' notas, '
       + D.meta.eventos.toLocaleString('pt-BR') + ' pedidos, ' + D.meta.clientes + ' clientes, '
       + cheio(D.meta.receita) + ' entre ' + dia(D.meta.inicio) + ' e ' + dia(D.meta.ref)
