@@ -42,19 +42,23 @@ class Connection:
         self.db.row_factory = sqlite3.Row
         self.db.executescript('''
           CREATE TABLE carteira_interacao(id TEXT PRIMARY KEY, cliente_id TEXT, data TEXT, tipo TEXT,
-            resumo TEXT, resultado TEXT DEFAULT '', responsavel TEXT DEFAULT '', criado_em TEXT);
+            resumo TEXT, resultado TEXT DEFAULT '', responsavel TEXT DEFAULT '',
+            usuario_id TEXT DEFAULT '', criado_em TEXT);
           CREATE TABLE carteira_tarefa(id TEXT PRIMARY KEY, cliente_id TEXT, titulo TEXT, prazo TEXT,
             feita BOOL DEFAULT 0, responsavel TEXT DEFAULT '', concluido_em TEXT, criado_em TEXT);
           CREATE TABLE carteira_lead(id TEXT PRIMARY KEY, nome TEXT, proximo TEXT, proximo_em TEXT,
             etapa TEXT, cliente_id TEXT, atualizado_em TEXT, contato TEXT, telefone TEXT, cidade TEXT,
             uf TEXT, email TEXT, motivo TEXT, obs TEXT, segmento TEXT, instagram TEXT,
-            revenda BOOL, revenda_de TEXT);
+            revenda BOOL, revenda_de TEXT, responsavel_usuario TEXT DEFAULT '');
           CREATE TABLE carteira_vendas(data TEXT, cliente TEXT, valor REAL);
+          CREATE TABLE special_orders(cliente TEXT, produto TEXT, quantidade INT,
+            urgente BOOL, concluido BOOL, criado_em TEXT, data_entrega TEXT);
           CREATE TABLE carteira_alias(apelido TEXT PRIMARY KEY, canonico TEXT);
           CREATE TABLE carteira_ficha(cliente_id TEXT PRIMARY KEY, cliente_nome TEXT, cidade TEXT,
             estado TEXT,situacao TEXT,motivo TEXT,atuacao TEXT,obs TEXT,dispensa BOOL,cadencia INT,
             tipo TEXT,classe_manual TEXT,prioridade BOOL,atualizado_em TEXT,
-            contato TEXT DEFAULT '', telefone TEXT DEFAULT '', email TEXT DEFAULT '', responsavel TEXT DEFAULT '');
+            contato TEXT DEFAULT '', telefone TEXT DEFAULT '', email TEXT DEFAULT '',
+            responsavel TEXT DEFAULT '', responsavel_usuario TEXT DEFAULT '');
         ''')
     def cursor(self, cursor_factory=None):
         return Cursor(self.db, bool(cursor_factory))
@@ -112,6 +116,31 @@ class RotinaTests(unittest.TestCase):
         self.assertFalse(b['clientes'][0]['contato_urgente'])
         self.assertEqual(b['clientes'][0]['dias_desde_compra_hoje'], 11)
 
+    def test_personal_agenda_is_selected_on_server_by_owner(self):
+        dados={'clientes':[dict(id='a',responsavel_usuario='flavia'),
+                           dict(id='b',responsavel_usuario='tiago'),
+                           dict(id='c',responsavel_usuario='')]}
+        leads=[dict(id='la',cliente_id='a',responsavel_usuario='tiago'),
+               dict(id='lb',cliente_id='',responsavel_usuario='flavia')]
+        tarefas=[dict(id='ta',cliente='a'),dict(id='tb',cliente='b'),
+                 dict(id='tc',cliente='c'),dict(id='tla',cliente='la'),dict(id='tlb',cliente='lb')]
+        inter=[dict(data=TODAY,tipo='contato',usuario_id='flavia'),
+               dict(data=TODAY,tipo='contato',usuario_id='tiago')]
+        pessoal=carteira.visao_pessoal(dados,leads,tarefas,inter,'flavia',TODAY)
+        self.assertEqual(pessoal['clientes'],['a'])
+        self.assertEqual(pessoal['leads'],['la','lb'])
+        self.assertEqual(pessoal['tarefas'],['ta','tla','tlb'])
+        self.assertEqual(pessoal['contatos_hoje'],1)
+
+    def test_purchase_history_groups_same_day_without_losing_entries(self):
+        rows=[(date(2026,9,20), 100.25),(date(2026,9,20), 200.50),
+              (date(2025,1,2), 50)]
+        history=carteira.historico_pedidos(rows)
+        self.assertEqual(len(history),2)
+        self.assertEqual(history[0],dict(data='2026-09-20',valor=300.75,
+                                          registros=2,valores=[100.25,200.5]))
+        self.assertEqual(history[1]['data'],'2025-01-02')
+
 
 class EndpointTests(unittest.TestCase):
     def setUp(self):
@@ -120,10 +149,13 @@ class EndpointTests(unittest.TestCase):
         env = dict(carteira=carteira, uuid=uuid, _date=date,
                    request=SimpleNamespace(get_json=lambda **kw: self.body),
                    jsonify=lambda value: value, get_db=lambda: self.conn,
-                   today_sp=lambda: TODAY, now_sp_str=lambda: TODAY+' 09:00:00')
+                   today_sp=lambda: TODAY, now_sp_str=lambda: TODAY+' 09:00:00',
+                   session={'usuario_id':'fernando'}, sessao_valida=lambda s:'fernando',
+                   USUARIOS={'flavia':'Flávia','tiago':'Tiago','fernando':'Fernando'})
         functions = ['admin_carteira_contato', 'admin_carteira_tarefa_add',
                      'admin_carteira_tarefa_toggle', 'admin_lead_concluir_retorno',
-                     'admin_lead_salvar', 'admin_carteira_ficha']
+                     'admin_lead_salvar', 'admin_carteira_ficha', 'admin_carteira_atribuir',
+                     'admin_carteira_pedidos']
         tree = ast.parse((ROOT/'app.py').read_text())
         nodes = []
         for node in tree.body:
@@ -142,9 +174,11 @@ class EndpointTests(unittest.TestCase):
 
     def test_contact_and_followup_are_saved_together(self):
         result = self.call('admin_carteira_contato', dict(cliente_id='a', resumo='Sem resposta fictícia',
-            resultado='sem_resposta', proximo='Tentar novamente', proximo_em='2026-09-25', responsavel='Equipe'))
+            resultado='sem_resposta', proximo='Tentar novamente', proximo_em='2026-09-25', responsavel='Nome falsificado'))
         self.assertTrue(result['success'])
         self.assertEqual(self.rows('carteira_interacao')[0]['resultado'], 'sem_resposta')
+        self.assertEqual(self.rows('carteira_interacao')[0]['responsavel'], 'Fernando')
+        self.assertEqual(self.rows('carteira_interacao')[0]['usuario_id'], 'fernando')
         self.assertEqual(self.rows('carteira_tarefa')[0]['prazo'], '2026-09-25')
         last = self.conn.db.execute("SELECT MAX(data) FROM carteira_interacao WHERE COALESCE(resultado,'') <> 'sem_resposta'").fetchone()[0]
         self.assertIsNone(last)
@@ -218,6 +252,37 @@ class EndpointTests(unittest.TestCase):
         self.call('admin_carteira_ficha',dict(cliente_id='a',cliente_nome='EXEMPLO',cidade='Cidade'))
         self.assertEqual(self.rows('carteira_ficha')[0]['telefone'],'123')
         self.assertEqual(self.rows('carteira_ficha')[0]['contato'],'Exemplo')
+
+    def test_assignment_queue_accepts_only_existing_customers_and_valid_users(self):
+        nome='CLIENTE FICTÍCIO'; cid=carteira.id_cliente(nome)
+        self.conn.db.execute('INSERT INTO carteira_vendas(data,cliente,valor) VALUES (?,?,100)',(TODAY,nome))
+        self.conn.commit()
+        self.assertEqual(self.call('admin_carteira_atribuir',dict(ids=['inexistente'],responsavel_usuario='flavia'))[1],400)
+        self.assertEqual(self.call('admin_carteira_atribuir',dict(ids=[cid],responsavel_usuario='admin'))[1],400)
+        result=self.call('admin_carteira_atribuir',dict(ids=[cid],responsavel_usuario='tiago'))
+        self.assertTrue(result['success'])
+        self.assertEqual(self.rows('carteira_ficha')[0]['responsavel_usuario'],'tiago')
+        result=self.call('admin_carteira_atribuir',dict(ids=[cid],responsavel_usuario=''))
+        self.assertTrue(result['success'])
+        self.assertEqual(self.rows('carteira_ficha')[0]['responsavel_usuario'],'')
+
+    def test_all_purchases_include_unified_aliases(self):
+        canonical='CLIENTE MODELO'; alias='NOME ANTIGO'
+        self.conn.db.execute('INSERT INTO carteira_alias(apelido,canonico) VALUES (?,?)',(alias,canonical))
+        self.conn.db.executemany('INSERT INTO carteira_vendas(data,cliente,valor) VALUES (?,?,?)',
+            [(TODAY,canonical,100.25),(TODAY,alias,200.50),('2025-01-02',alias,50)])
+        self.conn.db.execute('INSERT INTO special_orders VALUES (?,?,?,?,?,?,?)',
+                             (alias,'Produto de exemplo',12,1,0,'23/09/2026 09:00','30/09/2026'))
+        self.conn.commit()
+        result=self.call('admin_carteira_pedidos',{},carteira.id_cliente(canonical))
+        self.assertTrue(result['success'])
+        self.assertEqual(result['total_pedidos'],2)
+        self.assertEqual(result['total_lancamentos'],3)
+        self.assertEqual(result['pedidos'][0]['valor'],300.75)
+        self.assertEqual(len(result['pedidos_especiais']),1)
+        self.assertEqual(result['pedidos_especiais'][0]['produto'],'Produto de exemplo')
+        missing=self.call('admin_carteira_pedidos',{},'desconhecido')
+        self.assertEqual(missing[1],404)
 
 
 if __name__ == '__main__':
