@@ -358,9 +358,9 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   nav.abas{top:69px}
 }
 </style>
-<link rel="stylesheet" href="/static/carteira-ux.css?v=10">
+<link rel="stylesheet" href="/static/carteira-ux.css?v=12">
 </head>
-<body>
+<body data-usuario="{{ usuario_id }}">
 
 <header>
   <div class="header-logo"><img src="/static/logo.png" alt="Fogos Piromax"></div>
@@ -369,6 +369,7 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
     <div class="title">Carteira e CRM</div>
     <div class="sub" id="sub-periodo">Análise de vendas e CRM</div>
   </div>
+  <span class="usuario-selo">{{ usuario_nome }}</span>
   <a href="/admin" class="btn-voltar">Painel principal <span aria-hidden="true">↗</span></a>
 </header>
 
@@ -396,8 +397,9 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   <!-- ══ REGISTROS ══ -->
   <section class="painel" id="p-registros" role="tabpanel" aria-labelledby="aba-registros" hidden>
     <p class="olho">Clientes</p>
-    <h1>Sua carteira de clientes</h1>
-    <p class="lede">Encontre quem precisa de atenção e veja o próximo passo de cada relação.</p>
+    <h1>Carteira de clientes</h1>
+    <p class="lede">Todos da equipe veem a carteira completa. A agenda em Hoje mostra apenas seus clientes e leads.</p>
+    <div id="r-distribuicao"></div>
     <div class="fichas" id="r-views" style="margin-top:14px"></div>
     <div class="acoes controles-lista"><button id="r-mais-filtros" aria-expanded="false">Mais filtros</button><button id="r-colunas" aria-pressed="false">Mostrar detalhes e editar localização</button><button id="r-limpa">Limpar filtros</button></div>
     <div class="barra">
@@ -415,7 +417,7 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
     <div id="r-lote" hidden style="margin-bottom:11px"></div>
     <div class="tw"><table id="r-tab"><thead><tr>
       <th class="marc"><input type="checkbox" id="r-todos" aria-label="Marcar todos"></th>
-      <th><button type="button" data-s="nome">Cliente</button></th>
+      <th><button type="button" data-s="nome">Cliente</button></th><th>Responsável</th>
       <th class="extra-col">Cidade / UF</th>
       <th class="extra-col">Área de atuação</th>
       <th>Saúde comercial</th>
@@ -480,9 +482,10 @@ var ALIASES = {{ aliases_json|safe }};
 var CANDIDATOS = {{ candidatos_json|safe }};
 var REGIOES = {{ regioes_json|safe }};
 var PROSPEC = {{ prospec_json|safe }};
+var PESSOAL = {{ pessoal_json|safe }};
 var ETAPAS = {{ etapas_json|safe }};
 var HOJE = "{{ hoje }}";
 </script>
-<script src="/static/carteira.js?v=10"></script>
+<script src="/static/carteira.js?v=12"></script>
 </body>
 </html>
