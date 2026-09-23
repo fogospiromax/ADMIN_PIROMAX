@@ -358,28 +358,31 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   nav.abas{top:69px}
 }
 </style>
+<link rel="stylesheet" href="/static/carteira-ux.css?v=10">
 </head>
 <body>
 
 <header>
   <div class="header-logo"><img src="/static/logo.png" alt="Fogos Piromax"></div>
   <div class="header-brand-text">
-    <div class="title">Carteira de Clientes</div>
+    <div class="header-kicker">PIROMAX · COMERCIAL</div>
+    <div class="title">Carteira e CRM</div>
     <div class="sub" id="sub-periodo">Análise de vendas e CRM</div>
   </div>
-  <a href="/admin" class="btn-voltar">Voltar</a>
+  <a href="/admin" class="btn-voltar">Painel principal <span aria-hidden="true">↗</span></a>
 </header>
 
-<nav class="abas" id="abas" role="tablist"></nav>
+<nav class="abas" id="abas" role="tablist" aria-label="Áreas do CRM"></nav>
 
 <main>
 
   <!-- ══ HOJE ══ -->
-  <section class="painel" id="p-hoje">
-    <p class="olho">Fila de hoje</p>
-    <h1>Quem precisa de contato hoje</h1>
-    <p class="lede">A regra é a rotina: classe A e B a cada 15 dias, classe C a cada 30, salvo quem você dispensar.
-      Quem está vencido há mais tempo vem primeiro; entre dois igualmente vencidos, o dinheiro em jogo decide.</p>
+  <section class="painel" id="p-hoje" role="tabpanel" aria-labelledby="aba-hoje">
+    <h1>O que precisa da sua atenção</h1>
+    <p class="lede">Comece pelos compromissos. Depois, avance nos contatos sugeridos.</p>
+    <div id="h-agenda" class="cartao agenda"></div>
+    <h2 class="secao-titulo">Contatos sugeridos</h2>
+    <details class="saiba"><summary>Como a rotina é organizada</summary><p class="nota">Prioridades marcadas por você vêm primeiro. Depois, contatos vencidos e contatos sem registro, com os valores históricos como desempate. Um próximo passo com data define quando o cliente volta à fila. Padrão: 15 dias para classes A/B e 30 para C.</p></details>
     <div class="heroi">
       <div><div class="n" id="h-n">—</div><div class="sub" id="h-n-sub"></div></div>
       <div class="sub" id="h-sub"></div>
@@ -391,16 +394,17 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   </section>
 
   <!-- ══ REGISTROS ══ -->
-  <section class="painel" id="p-registros" hidden>
-    <p class="olho">Registros</p>
-    <h1>Todos os clientes, uma lista só</h1>
-    <p class="lede">As visões são filtros salvos, não abas novas. Cada cliente tem endereço próprio e abre aqui mesmo.</p>
+  <section class="painel" id="p-registros" role="tabpanel" aria-labelledby="aba-registros" hidden>
+    <p class="olho">Clientes</p>
+    <h1>Sua carteira de clientes</h1>
+    <p class="lede">Encontre quem precisa de atenção e veja o próximo passo de cada relação.</p>
     <div class="fichas" id="r-views" style="margin-top:14px"></div>
+    <div class="acoes controles-lista"><button id="r-mais-filtros" aria-expanded="false">Mais filtros</button><button id="r-colunas" aria-pressed="false">Mostrar detalhes e editar localização</button><button id="r-limpa">Limpar filtros</button></div>
     <div class="barra">
       <div class="busca">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="color:var(--texto3);flex:0 0 15px"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
         <label for="r-busca" style="position:absolute;left:-9999px">Buscar cliente</label>
-        <input id="r-busca" type="search" placeholder="Buscar por nome…" autocomplete="off">
+        <input id="r-busca" type="search" placeholder="Buscar cliente, cidade ou contato…" autocomplete="off">
       </div>
       <label for="r-uf" style="position:absolute;left:-9999px">Filtrar por estado</label>
       <select id="r-uf" class="filtro"><option value="">Todos os estados</option></select>
@@ -412,25 +416,22 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
     <div class="tw"><table id="r-tab"><thead><tr>
       <th class="marc"><input type="checkbox" id="r-todos" aria-label="Marcar todos"></th>
       <th><button type="button" data-s="nome">Cliente</button></th>
-      <th>Cidade / UF</th>
-      <th>Área de atuação</th>
-      <th>Situação</th>
-      <th class="num"><button type="button" data-s="receita">Receita total</button></th>
-      <th class="num"><button type="button" data-s="var_ytd_pct">No ano vs. média</button></th>
-      <th class="num"><button type="button" data-s="ticket">Pedido médio</button></th>
-      <th class="num"><button type="button" data-s="compras">Compras</button></th>
-      <th class="num"><button type="button" data-s="recencia">Cliente desde</button></th>
-      <th class="num">Último contato</th>
+      <th class="extra-col">Cidade / UF</th>
+      <th class="extra-col">Área de atuação</th>
+      <th>Saúde comercial</th>
+      <th class="num extra-col"><button type="button" data-s="receita">Receita total</button></th>
+      <th class="num extra-col"><button type="button" data-s="var_ytd_pct">No ano vs. média</button></th>
+      <th class="num extra-col"><button type="button" data-s="ticket">Pedido médio</button></th>
+      <th class="num extra-col"><button type="button" data-s="compras">Compras</button></th>
+      <th class="num extra-col"><button type="button" data-s="primeira">Cliente desde</button></th>
+      <th class="num"><button type="button" data-s="ultima">Última compra</button></th><th>Último registro / atendimento</th><th>Próxima ação</th>
     </tr></thead><tbody id="r-corpo"></tbody></table></div>
-    <p class="nota">Cidade e estado se digitam na própria linha, sem abrir a ficha: escreva a cidade,
-      escolha a UF e ele grava sozinho. Enter desce para a linha de baixo. A visão
-      <b>Sem cidade</b> deixa na tela só quem ainda falta.</p>
-    <p class="nota">Quem ainda não é cliente vive em <b>Prospecção</b>, com funil próprio.
-      Assim que um lead é ganho ele aparece aqui e entra na mesma rotina de contato.</p>
+    <p class="nota">Clique no cliente para abrir a ficha. Em “Mostrar detalhes”, cidade e estado podem ser editados na tabela e são salvos automaticamente.</p>
+    <p class="nota">Leads ficam em <b>Prospecção</b>. Ao ganhar uma negociação, importe a venda e vincule o lead ao cliente correspondente.</p>
   </section>
 
   <!-- ══ PROSPECÇÃO ══ -->
-  <section class="painel" id="p-prospeccao" hidden>
+  <section class="painel" id="p-prospeccao" role="tabpanel" aria-labelledby="aba-prospeccao" hidden>
     <p class="olho">Prospecção</p>
     <h1>Quem ainda não é cliente</h1>
     <p class="lede">Funil próprio, separado da carteira, porque a conversa é outra.</p>
@@ -438,10 +439,10 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   </section>
 
   <!-- ══ ANÁLISE ══ -->
-  <section class="painel" id="p-analise" hidden>
-    <p class="olho">Análise</p>
-    <h1>O relatório do mês, numa página</h1>
-    <p class="lede">Toda comparação de ano usa a mesma janela dos dois lados: 1º de janeiro até o dia da última venda carregada.</p>
+  <section class="painel" id="p-analise" role="tabpanel" aria-labelledby="aba-analise" hidden>
+    <p class="olho">Resultados</p>
+    <h1>Da visão geral à próxima decisão</h1>
+    <p class="lede">Os indicadores comparam o mesmo período do ano. No gráfico mensal, o mês atual é parcial e está identificado.</p>
     <div class="anal" style="margin-top:16px">
       <nav class="indice" aria-label="Capítulos">
         <a href="#/analise/visao">Visão geral</a>
@@ -456,10 +457,10 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   </section>
 
   <!-- ══ DADOS ══ -->
-  <section class="painel" id="p-dados" hidden>
+  <section class="painel" id="p-dados" role="tabpanel" aria-labelledby="aba-dados" hidden>
     <p class="olho">Dados</p>
     <h1>De onde vêm os números</h1>
-    <p class="lede">Carregar, unificar e preencher. Ninguém entra aqui no dia a dia, e é por isso que sai da frente.</p>
+    <p class="lede">Importe vendas e revise a qualidade dos cadastros. Confira a prévia antes de gravar.</p>
     <div id="d-corpo" style="margin-top:16px"></div>
   </section>
 
@@ -482,6 +483,6 @@ var PROSPEC = {{ prospec_json|safe }};
 var ETAPAS = {{ etapas_json|safe }};
 var HOJE = "{{ hoje }}";
 </script>
-<script src="/static/carteira.js?v=8"></script>
+<script src="/static/carteira.js?v=10"></script>
 </body>
 </html>
