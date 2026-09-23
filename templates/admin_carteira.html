@@ -358,7 +358,7 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   nav.abas{top:69px}
 }
 </style>
-<link rel="stylesheet" href="/static/carteira-ux.css?v=13">
+<link rel="stylesheet" href="/static/carteira-ux.css?v=16">
 </head>
 <body data-usuario="{{ usuario_id }}">
 
@@ -426,17 +426,20 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
       <th class="num extra-col"><button type="button" data-s="ticket">Pedido médio</button></th>
       <th class="num extra-col"><button type="button" data-s="ultima">Última compra</button></th>
       <th class="num extra-col"><button type="button" data-s="primeira">Cliente desde</button></th>
-      <th class="num"><button type="button" data-s="receita">Valor total comprado</button></th><th>Último registro / atendimento</th><th>Próxima ação</th>
+      <th class="num"><button type="button" data-s="receita">Valor total comprado</button></th>
+      <th class="num horizonte-col"><button type="button" data-s="previsao_trimestre">Estimativa 3 meses</button></th>
+      <th>Último registro / atendimento</th><th>Próxima ação</th>
     </tr></thead><tbody id="r-corpo"></tbody></table></div>
     <p class="nota">Clique no cliente para abrir a ficha. Em “Mostrar detalhes”, cidade e estado podem ser editados na tabela e são salvos automaticamente.</p>
-    <p class="nota">Leads ficam em <b>Prospecção</b>. Ao ganhar uma negociação, importe a venda e vincule o lead ao cliente correspondente.</p>
+    <p class="nota">A estimativa de três meses usa o histórico do mesmo mês nos dois anos anteriores. Na ficha, o vendido no mês atual aparece separado da estimativa.</p>
+    <p class="nota">Leads e clientes que compram por revenda ficam em <b>Prospecção</b>. Seus contatos e tarefas não se misturam aos dos clientes que compram direto.</p>
   </section>
 
   <!-- ══ PROSPECÇÃO ══ -->
   <section class="painel" id="p-prospeccao" role="tabpanel" aria-labelledby="aba-prospeccao" hidden>
     <p class="olho">Prospecção</p>
-    <h1>Quem ainda não é cliente</h1>
-    <p class="lede">Funil próprio, separado da carteira, porque a conversa é outra.</p>
+    <h1>Leads e clientes indiretos</h1>
+    <p class="lede">Acompanhe quem ainda não compra direto, inclusive quem já compra Piromax por uma revenda.</p>
     <div id="pr-corpo" style="margin-top:16px"></div>
   </section>
 
@@ -486,6 +489,6 @@ var PESSOAL = {{ pessoal_json|safe }};
 var ETAPAS = {{ etapas_json|safe }};
 var HOJE = "{{ hoje }}";
 </script>
-<script src="/static/carteira.js?v=15"></script>
+<script src="/static/carteira.js?v=20"></script>
 </body>
 </html>
