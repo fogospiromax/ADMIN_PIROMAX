@@ -1186,12 +1186,7 @@ def _carteira_dados():
     conn.close()
 
     hoje = _date.fromisoformat(today_sp())
-    for lead in leads:
-        cid = lead.get('cliente_id')
-        ultima = contatos.get(lead['id'])
-        if cid and ultima and (cid not in contatos or ultima > contatos[cid]):
-            contatos[cid] = ultima
-    retornos = carteira.retornos_pendentes(tarefas, leads)
+    retornos = carteira.retornos_pendentes(tarefas)
     dados = carteira.calcular(linhas, aliases, fichas, contatos, hoje, retornos)
     if dados:
         dados['meta']['ultima_importacao'] = ultima_importacao
@@ -1250,7 +1245,7 @@ def admin_carteira_dados():
 @app.route('/admin/carteira/cliente/<cliente_id>/pedidos')
 @login_required
 def admin_carteira_pedidos(cliente_id):
-    """Vendas importadas e pedidos especiais ligados a este cliente ou seus apelidos."""
+    """Histórico das vendas importadas deste cliente e seus apelidos."""
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -1265,21 +1260,12 @@ def admin_carteira_pedidos(cliente_id):
                     'WHERE COALESCE(a.canonico, v.cliente)=%s '
                     'ORDER BY v.data DESC, v.valor DESC', (nome,))
         pedidos = carteira.historico_pedidos(cur.fetchall())
-        cur.execute('SELECT apelido FROM carteira_alias WHERE canonico=%s', (nome,))
-        nomes_cliente = {carteira.normalizar(x) for x in [nome] + [r[0] for r in cur.fetchall()]}
-        cur.execute('SELECT cliente, produto, quantidade, urgente, concluido, criado_em, '
-                    'data_entrega FROM special_orders ORDER BY criado_em DESC')
-        especiais = [dict(cliente=r[0], produto=r[1], quantidade=r[2],
-                          urgente=bool(r[3]), concluido=bool(r[4]),
-                          criado_em=r[5], data_entrega=r[6] or '')
-                     for r in cur.fetchall() if carteira.normalizar(r[0]) in nomes_cliente]
     finally:
         cur.close()
         conn.close()
     return jsonify({'success': True, 'pedidos': pedidos,
                     'total_pedidos': len(pedidos),
-                    'total_lancamentos': sum(p['registros'] for p in pedidos),
-                    'pedidos_especiais': especiais})
+                    'total_lancamentos': sum(p['registros'] for p in pedidos)})
 
 
 def _ler_upload(arq):
@@ -1856,7 +1842,7 @@ def admin_lead_novo():
           (d.get('email') or '')[:160], etapa, (d.get('segmento') or '')[:60],
           (d.get('instagram') or '')[:300], (d.get('obs') or '')[:2000],
           (d.get('proximo') or '')[:300], (d.get('proximo_em') or None),
-          bool(d.get('revenda')), (d.get('revenda_de') or '')[:200],
+          bool(d.get('revenda')), ((d.get('revenda_de') or '')[:200] if d.get('revenda') else ''),
           'cadastrado à mão', agora, agora, sessao_valida(session, app.secret_key)))
     conn.commit()
     cur.close()
@@ -1923,21 +1909,10 @@ def admin_lead_salvar():
                'motivo': 1000, 'obs': 2000, 'proximo': 300,
                'segmento': 60, 'instagram': 300, 'revenda_de': 200}
     campos, valores = [], []
-    if 'cliente_id' in d:
-        cid = str(d.get('cliente_id') or '').strip()
-        if cid:
-            cur.execute('SELECT DISTINCT COALESCE(a.canonico, v.cliente) '
-                        'FROM carteira_vendas v LEFT JOIN carteira_alias a ON a.apelido=v.cliente')
-            validos = {carteira.id_cliente(r[0]) for r in cur.fetchall()}
-            if cid not in validos:
-                cur.close()
-                conn.close()
-                return jsonify({'success': False, 'erro': 'Escolha um cliente da carteira.'}), 400
-            cur.execute('SELECT responsavel_usuario FROM carteira_ficha WHERE cliente_id=%s', (cid,))
-            ficha_dono = cur.fetchone()
-            dono = (ficha_dono[0] or '') if ficha_dono else ''
-        campos.append('cliente_id=%s')
-        valores.append(cid)
+    if str(d.get('cliente_id') or '').strip():
+        cur.close()
+        conn.close()
+        return jsonify({'success': False, 'erro': 'Registre a revenda que abastece este lead no campo de compra por revenda.'}), 400
     if dono is not None:
         campos.append('responsavel_usuario=%s')
         valores.append(dono)
@@ -1945,6 +1920,8 @@ def admin_lead_salvar():
     for k, lim in limites.items():
         if k in d:
             v = (d.get(k) or '')[:lim]
+            if k == 'revenda_de' and d.get('revenda') is False:
+                v = ''
             campos.append(k + '=%s')
             valores.append(carteira.normalizar_uf(v) if k == 'uf' else v)
     if 'etapa' in d:
@@ -2076,7 +2053,7 @@ def admin_carteira_unificar():
 @app.route('/admin/carteira/lead/revenda-lote', methods=['POST'])
 @login_required
 def admin_lead_revenda_lote():
-    """Marca varios leads como revenda de um cliente da casa."""
+    """Marca varios leads como compradores indiretos por revenda."""
     d = request.get_json(silent=True) or {}
     ids = [str(x).strip() for x in (d.get('ids') or []) if str(x).strip()]
     if not ids:
@@ -2085,7 +2062,7 @@ def admin_lead_revenda_lote():
     cur = conn.cursor()
     cur.execute('UPDATE carteira_lead SET revenda=%s, revenda_de=%s, atualizado_em=%s '
                 'WHERE id = ANY(%s)',
-                (bool(d.get('revenda')), (d.get('revenda_de') or '')[:200],
+                (bool(d.get('revenda')), ((d.get('revenda_de') or '')[:200] if d.get('revenda') else ''),
                  now_sp_str(), ids[:500]))
     n = cur.rowcount
     conn.commit()
@@ -2118,11 +2095,20 @@ def admin_lead_etapa_lote():
 def admin_lead_excluir(lead_id):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('DELETE FROM carteira_lead WHERE id=%s', (lead_id,))
-    cur.execute('DELETE FROM carteira_interacao WHERE cliente_id=%s', (lead_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        cur.execute('SELECT id FROM carteira_lead WHERE id=%s FOR UPDATE', (lead_id,))
+        if not cur.fetchone():
+            return jsonify({'success': False, 'erro': 'Lead não encontrado.'}), 404
+        cur.execute('DELETE FROM carteira_tarefa WHERE cliente_id=%s', (lead_id,))
+        cur.execute('DELETE FROM carteira_interacao WHERE cliente_id=%s', (lead_id,))
+        cur.execute('DELETE FROM carteira_lead WHERE id=%s', (lead_id,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
     return jsonify({'success': True})
 
 
