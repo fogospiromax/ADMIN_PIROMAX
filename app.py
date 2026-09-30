@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime, date, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, abort, make_response, render_template, request, jsonify, session, redirect, url_for
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from crm_auth import USUARIOS, autenticar, sessao_valida, variavel_senha, versao_credencial
@@ -17,6 +17,7 @@ app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 app.permanent_session_lifetime = timedelta(hours=12)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('RENDER') == 'true'
 
 SAO_PAULO = ZoneInfo('America/Sao_Paulo')
 
@@ -1002,6 +1003,7 @@ def api_tasks():
 import json as _json
 from datetime import date as _date
 import carteira
+import relatorio_cliente
 
 
 def init_carteira_db():
@@ -1266,6 +1268,27 @@ def admin_carteira_pedidos(cliente_id):
     return jsonify({'success': True, 'pedidos': pedidos,
                     'total_pedidos': len(pedidos),
                     'total_lancamentos': sum(p['registros'] for p in pedidos)})
+
+
+@app.route('/admin/carteira/cliente/<cliente_id>/relatorio')
+@login_required
+def admin_carteira_relatorio(cliente_id):
+    """Visão individual, pronta para consulta e impressão pelo navegador."""
+    dados, _, interacoes, tarefas, _, _, _ = _carteira_dados()
+    cliente = next((item for item in (dados or {}).get('clientes', [])
+                    if item['id'] == cliente_id), None)
+    if cliente is None:
+        abort(404)
+    relatorio = relatorio_cliente.preparar(
+        cliente, interacoes, tarefas, dados['meta'], now_sp().date())
+    resposta = make_response(render_template(
+        'admin_relatorio_cliente.html', relatorio=relatorio,
+        usuario_nome=USUARIOS.get(cliente.get('responsavel_usuario'), 'Sem responsável'),
+        moeda=relatorio_cliente.moeda, data_br=relatorio_cliente.data_br,
+        mes_br=relatorio_cliente.mes_br))
+    resposta.headers['Cache-Control'] = 'private, no-store'
+    resposta.headers['X-Robots-Tag'] = 'noindex, nofollow, noarchive'
+    return resposta
 
 
 def _ler_upload(arq):
