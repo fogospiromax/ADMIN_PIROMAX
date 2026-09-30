@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Relatório · {{ relatorio.cliente.nome }} · Piromax</title>
+  <style>
+    :root{--ink:#27243d;--muted:#647087;--line:#e2e6ee;--paper:#fff;--bg:#f5f6f9;
+      --purple:#6844bb;--purple-light:#f2eefb;--green:#157a57;--amber:#93651d;--red:#b33d3d}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+    button,a{font:inherit}a{color:var(--purple)}
+    .toolbar{max-width:1080px;margin:22px auto 12px;padding:0 24px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .toolbar a{text-decoration:none;font-weight:650}.toolbar button{background:var(--purple);color:#fff;border:0;border-radius:9px;padding:10px 15px;cursor:pointer;font-weight:700}
+    .toolbar button:hover{background:#55349f}
+    .page{max-width:1080px;margin:0 auto 36px;padding:38px 42px 30px;background:var(--paper);border:1px solid var(--line);border-radius:15px;box-shadow:0 10px 35px rgba(29,32,54,.055)}
+    .eyebrow{margin:0 0 5px;color:var(--purple);font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase}
+    .hero{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:21px;border-bottom:1px solid var(--line)}
+    h1{font-size:28px;line-height:1.15;letter-spacing:-.035em;margin:0 0 10px;overflow-wrap:anywhere}
+    h2{font-size:16px;line-height:1.3;margin:0;color:var(--ink)}
+    h3{font-size:13px;line-height:1.35;margin:0}
+    p{margin:0}.muted{color:var(--muted)}.small{font-size:12px}.mono{font-variant-numeric:tabular-nums}
+    .hero-meta{display:flex;flex-wrap:wrap;gap:6px 15px;color:var(--muted);font-size:12px}
+    .stamp{text-align:right;min-width:165px;color:var(--muted);font-size:12px}.stamp strong{display:block;color:var(--ink);font-size:13px}
+    .tag{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:2px 8px;color:var(--muted);font-size:11px;font-weight:700}
+    .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:22px 0}
+    .metric{padding:15px 16px;border:1px solid var(--line);border-radius:11px;min-width:0}
+    .metric .label{display:block;margin-bottom:7px;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    .metric strong{display:block;font-size:20px;line-height:1.15;letter-spacing:-.025em;overflow-wrap:anywhere}
+    .metric small{display:block;margin-top:5px;color:var(--muted);font-size:11px}
+    .split{display:grid;grid-template-columns:1.12fr .88fr;gap:14px;margin:0 0 14px}
+    .panel{border:1px solid var(--line);border-radius:11px;padding:18px 20px;min-width:0;break-inside:avoid}
+    .panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:13px}
+    .panel-head span{color:var(--muted);font-size:11px}
+    .signal{display:flex;gap:10px;padding:10px 0;border-top:1px solid #edf0f4}
+    .signal:first-of-type{border-top:0;padding-top:0}.signal .dot{flex:0 0 7px;width:7px;height:7px;margin-top:6px;border-radius:50%;background:var(--amber)}
+    .signal.ruim .dot{background:var(--red)}.signal.bom .dot{background:var(--green)}.signal.neutro .dot{background:var(--muted)}
+    .signal p{color:var(--muted);font-size:12px;margin-top:2px}
+    .comparison{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end}
+    .comparison span{display:block;color:var(--muted);font-size:11px}.comparison strong{font-size:17px;letter-spacing:-.02em}
+    .comparison .delta{font-size:18px;color:var(--purple)}
+    .comparison .delta.down{color:var(--red)}
+    .section{margin-top:22px}.section-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:11px}
+    .section-title span{font-size:11px;color:var(--muted)}
+    .month-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 24px}
+    .month{display:grid;grid-template-columns:45px minmax(35px,1fr) 110px;gap:8px;align-items:center;font-size:11px;font-variant-numeric:tabular-nums}
+    .month-label{color:var(--muted)}.month-track{height:9px;border-radius:99px;background:#eff1f5;overflow:hidden}
+    .month-fill{display:block;height:100%;border-radius:99px;background:#9a82d5}.month.partial .month-fill{background:var(--purple)}
+    .month-value{text-align:right;font-weight:650;white-space:nowrap}
+    .forecast-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .forecast-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;break-inside:avoid}
+    .forecast-card .month-name{font-size:11px;color:var(--muted);font-weight:750;text-transform:uppercase;letter-spacing:.06em}
+    .forecast-card strong{display:block;font-size:19px;margin:5px 0 2px;font-variant-numeric:tabular-nums}
+    .forecast-card small{display:block;color:var(--muted);font-size:11px;line-height:1.45}
+    .forecast-note{margin-top:9px;color:var(--muted);font-size:11px}
+    .activity{list-style:none;padding:0;margin:0}.activity li{padding:9px 0;border-top:1px solid #edf0f4;break-inside:avoid}
+    .activity li:first-child{border-top:0;padding-top:0}.activity .date{color:var(--muted);font-size:11px}
+    .activity p{font-size:12px;overflow-wrap:anywhere}.activity .who{color:var(--muted)}
+    .empty{color:var(--muted);font-size:12px;padding:4px 0}
+    .history-table{width:100%;border-collapse:collapse;font-size:12px}.history-table th{text-align:left;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.07em}
+    .history-table th,.history-table td{padding:8px 4px;border-bottom:1px solid #edf0f4}.history-table td:last-child,.history-table th:last-child{text-align:right}
+    details.full-history{margin-top:12px}details.full-history summary{color:var(--purple);cursor:pointer;font-size:12px;font-weight:700}
+    details.full-history .history-table{margin-top:8px}
+    .foot{margin-top:24px;padding-top:15px;border-top:1px solid var(--line);color:var(--muted);font-size:10px;line-height:1.5}
+    .print-only{display:none}
+    @media(max-width:760px){.page{margin:0;padding:24px 18px;border-radius:0}.toolbar{margin:10px auto;padding:0 16px}.hero{display:block}.stamp{text-align:left;margin-top:12px}.summary{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}.month-grid{grid-template-columns:1fr}.forecast-grid{grid-template-columns:1fr}}
+    @media print{
+      @page{size:A4;margin:13mm}
+      body{background:#fff;color:#222;font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .toolbar,.screen-only{display:none!important}.print-only{display:block}
+      .page{max-width:none;margin:0;padding:0;border:0;box-shadow:none}.hero{padding-bottom:14px}h1{font-size:23px}
+      .summary{gap:6px;margin:14px 0}.metric{padding:10px}.metric strong{font-size:16px}.metric small{font-size:10px}
+      .panel{padding:12px 14px}.section{margin-top:15px}.section-title{margin-bottom:7px}
+      .forecast-card{padding:8px 10px}.forecast-card strong{font-size:15px}
+      .activity li:nth-child(n+4){display:none}.foot{margin-top:15px}
+    }
+  </style>
+</head>
+<body>
+{% set c = relatorio.cliente %}
+<div class="toolbar">
+  <a href="{{ url_for('admin_carteira_view') }}#/cliente/{{ c.id }}">← Voltar à ficha do cliente</a>
+  <button type="button" onclick="window.print()">Imprimir / salvar PDF</button>
+</div>
+<main class="page">
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Piromax · relatório individual · uso interno</p>
+      <h1>{{ c.nome }}</h1>
+      <div class="hero-meta">
+        <span>{{ [c.cidade, c.uf_base]|select|join(' / ') or 'Localização não informada' }}</span>
+        <span>Responsável: {{ usuario_nome }}</span>
+        <span class="tag">Classe {{ c.classe }}</span>
+        <span class="tag">{{ 'Encerrado' if c.encerrado else 'Pausado' if c.situacao == 'pausado' else 'Ativo' }}</span>
+      </div>
+    </div>
+    <div class="stamp">Gerado em <strong>{{ data_br(relatorio.gerado_em) }}</strong>
+      Vendas registradas até {{ data_br(relatorio.referencia) }}</div>
+  </header>
+
+  <section class="summary" aria-label="Indicadores do cliente">
+    <div class="metric"><span class="label">Valor total comprado</span><strong class="mono">{{ moeda(c.receita) }}</strong><small>{{ c.compras }} compras registradas</small></div>
+    <div class="metric"><span class="label">Vendas no ano</span><strong class="mono">{{ moeda(c.ytd_atual) }}</strong><small>Até {{ data_br(relatorio.referencia) }}</small></div>
+    <div class="metric"><span class="label">Última compra</span><strong class="mono">{{ data_br(c.ultima) }}</strong><small>Compra a cada ~{{ c.intervalo|round|int if c.intervalo else '—' }} dias</small></div>
+    <div class="metric"><span class="label">Valor médio por compra</span><strong class="mono">{{ moeda(c.ticket) }}</strong><small>Primeira compra: {{ data_br(c.primeira) }}</small></div>
+  </section>
+
+  <div class="split">
+    <section class="panel" aria-labelledby="sinais-titulo">
+      <div class="panel-head"><h2 id="sinais-titulo">O que merece atenção</h2><span>{{ c.direcao|capitalize }}</span></div>
+      {% for tom, titulo, texto in relatorio.sinais %}
+      <div class="signal {{ tom }}"><span class="dot" aria-hidden="true"></span><div><h3>{{ titulo }}</h3><p>{{ texto }}</p></div></div>
+      {% endfor %}
+      <p class="small muted" style="margin-top:8px">Rotina: {{ c.contato_rotulo }}{% if c.contato_ultimo %} · último contato efetivo em {{ data_br(c.contato_ultimo) }}{% endif %}.</p>
+    </section>
+    <section class="panel" aria-labelledby="comparacao-titulo">
+      <div class="panel-head"><h2 id="comparacao-titulo">Comparação anual</h2><span>1º de janeiro até a data de referência</span></div>
+      <div class="comparison">
+        <div><span>{{ relatorio.referencia[:4] }}</span><strong class="mono">{{ moeda(c.ytd_atual) }}</strong></div>
+        <div><span>Média anterior</span><strong class="mono">{{ moeda(c.ytd_base) if relatorio.comparacao_disponivel else '—' }}</strong></div>
+        <div><span>Variação</span><strong class="delta mono {{ 'down' if c.var_ytd_pct is not none and c.var_ytd_pct < 0 else '' }}">{{ '%+.0f%%'|format(c.var_ytd_pct) if relatorio.comparacao_disponivel else '—' }}</strong></div>
+      </div>
+      <p class="small muted" style="margin-top:12px">{% if relatorio.comparacao_disponivel %}Média dos {{ relatorio.anos_base }} ano(s) anterior(es) comparáveis em que o cliente já existia.{% else %}Sem histórico anterior suficiente para uma comparação percentual.{% endif %}</p>
+    </section>
+  </div>
+
+  <section class="section panel" aria-labelledby="evolucao-titulo">
+    <div class="section-title"><h2 id="evolucao-titulo">Vendas mês a mês</h2><span>Últimos 12 meses até a referência · mês final pode estar incompleto</span></div>
+    <div class="month-grid">
+      {% for item in relatorio.serie %}
+      <div class="month {{ 'partial' if item.parcial else '' }}"><span class="month-label">{{ item.rotulo }}</span><span class="month-track"><span class="month-fill" style="width:{{ item.largura }}%"></span></span><span class="month-value">{{ moeda(item.valor) }}</span></div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section panel" aria-labelledby="previsao-titulo">
+    <div class="section-title"><h2 id="previsao-titulo">Vendas e estimativa · 3 meses</h2><span>Estimativa automática; não representa pedido confirmado</span></div>
+    <div class="forecast-grid">
+      {% for item in relatorio.horizonte.meses or [] %}
+      <div class="forecast-card">
+        <span class="month-name">{{ mes_br(item.mes) }}</span>
+        <strong>{{ moeda(item.estimativa) if item.estimativa is not none else 'Sem base' }}</strong>
+        {% if loop.first %}<small>Vendido registrado no mês: {{ moeda(item.realizado) }}</small>{% else %}<small>Estimativa pelo histórico</small>{% endif %}
+        <small>{% if item.base %}Base: {% for base in item.base %}{{ base.ano }} {{ moeda(base.valor) }}{{ ' · ' if not loop.last else '' }}{% endfor %}{% else %}Sem ano comparável{% endif %}</small>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="forecast-note">Método atual do app: média do mesmo mês nos dois anos anteriores em que o cliente já existia. No mês corrente, a estimativa nunca fica abaixo do valor já vendido. {% if c.encerrado %}Cliente encerrado: não há estimativa futura.{% endif %}</p>
+  </section>
+
+  <div class="split section">
+    <section class="panel" aria-labelledby="tarefas-titulo">
+      <div class="panel-head"><h2 id="tarefas-titulo">Próximas ações</h2><span>{{ relatorio.pendentes|length }} pendente(s)</span></div>
+      {% if relatorio.pendentes %}<ol class="activity">
+        {% for tarefa in relatorio.pendentes[:5] %}<li><span class="date">{{ data_br(tarefa.prazo) if tarefa.prazo else 'Sem data' }}</span><p><strong>{{ tarefa.titulo }}</strong>{% if tarefa.responsavel %}<span class="who"> · {{ tarefa.responsavel }}</span>{% endif %}</p></li>{% endfor %}
+      </ol>{% if relatorio.pendentes|length > 5 %}<p class="small muted">Mais {{ relatorio.pendentes|length - 5 }} tarefa(s) na ficha.</p>{% endif %}
+      {% else %}<p class="empty">Nenhuma tarefa pendente.</p>{% endif %}
+    </section>
+    <section class="panel" aria-labelledby="contatos-titulo">
+      <div class="panel-head"><h2 id="contatos-titulo">Contatos recentes</h2><span>{{ relatorio.contatos|length }} registro(s)</span></div>
+      {% if relatorio.contatos %}<ol class="activity">
+        {% for contato in relatorio.contatos[:5] %}<li><span class="date">{{ data_br(contato.data) }} · {{ contato.resultado_rotulo }}</span><p>{{ contato.resumo or 'Sem resumo' }}{% if contato.responsavel %}<span class="who"> · {{ contato.responsavel }}</span>{% endif %}</p></li>{% endfor %}
+      </ol>{% else %}<p class="empty">Nenhum contato registrado.</p>{% endif %}
+    </section>
+  </div>
+
+  <section class="section panel" aria-labelledby="compras-titulo">
+    <div class="section-title"><h2 id="compras-titulo">Histórico de compras</h2><span>{{ c.compras }} compras · {{ c.notas }} lançamentos</span></div>
+    <table class="history-table"><thead><tr><th scope="col">Data</th><th scope="col">Valor</th></tr></thead><tbody>
+      {% for data, valor in relatorio.compras[:8] %}<tr><td>{{ data_br(data) }}</td><td class="mono">{{ moeda(valor) }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% if relatorio.compras|length > 8 %}
+    <details class="full-history screen-only"><summary>Ver mais {{ relatorio.compras|length - 8 }} compras</summary>
+      <table class="history-table"><thead><tr><th scope="col">Data</th><th scope="col">Valor</th></tr></thead><tbody>
+        {% for data, valor in relatorio.compras[8:] %}<tr><td>{{ data_br(data) }}</td><td class="mono">{{ moeda(valor) }}</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+    <p class="small muted print-only">As demais compras podem ser consultadas na versão interna do relatório.</p>
+    {% endif %}
+  </section>
+
+  <footer class="foot">Fonte: vendas importadas no CRM{% if relatorio.ultima_importacao %} · última importação: {{ relatorio.ultima_importacao }}{% endif %}. A origem contém somente data, cliente e valor; lançamentos do mesmo cliente na mesma data são agrupados como uma compra. Produto, quantidade, margem e número do pedido não constam nessa base. Contatos e tarefas vêm dos registros da equipe. Relatório gerado automaticamente para uso interno.</footer>
+</main>
+</body>
+</html>

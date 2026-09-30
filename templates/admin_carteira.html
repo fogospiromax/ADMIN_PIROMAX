@@ -358,7 +358,7 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   nav.abas{top:69px}
 }
 </style>
-<link rel="stylesheet" href="/static/carteira-ux.css?v=16">
+<link rel="stylesheet" href="/static/carteira-ux.css?v=17">
 </head>
 <body data-usuario="{{ usuario_id }}">
 
@@ -477,18 +477,18 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
 <input type="file" id="arq-leads" accept=".csv,.txt" hidden>
 
 <script>
-var D = {{ dados_json|safe }};
-var FICHA = {{ fichas_json|safe }};
-var INTER = {{ inter_json|safe }};
-var TAREFAS = {{ tarefas_json|safe }};
-var ALIASES = {{ aliases_json|safe }};
-var CANDIDATOS = {{ candidatos_json|safe }};
-var REGIOES = {{ regioes_json|safe }};
-var PROSPEC = {{ prospec_json|safe }};
-var PESSOAL = {{ pessoal_json|safe }};
-var ETAPAS = {{ etapas_json|safe }};
+var D = JSON.parse({{ dados_json|tojson }});
+var FICHA = JSON.parse({{ fichas_json|tojson }});
+var INTER = JSON.parse({{ inter_json|tojson }});
+var TAREFAS = JSON.parse({{ tarefas_json|tojson }});
+var ALIASES = JSON.parse({{ aliases_json|tojson }});
+var CANDIDATOS = JSON.parse({{ candidatos_json|tojson }});
+var REGIOES = JSON.parse({{ regioes_json|tojson }});
+var PROSPEC = JSON.parse({{ prospec_json|tojson }});
+var PESSOAL = JSON.parse({{ pessoal_json|tojson }});
+var ETAPAS = JSON.parse({{ etapas_json|tojson }});
 var HOJE = "{{ hoje }}";
 </script>
-<script src="/static/carteira.js?v=20"></script>
+<script src="/static/carteira.js?v=21"></script>
 </body>
 </html>
