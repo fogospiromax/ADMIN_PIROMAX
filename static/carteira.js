@@ -952,6 +952,8 @@ function fichaCliente(id) {
     + '<h2 style="word-break:break-word">' + esc(c.nome) + '</h2>'
     + '<p style="margin-top:4px;color:var(--texto2);font-size:.79rem">' + esc(c.perfil)
       + ' · compra a cada ~' + (c.intervalo || '—') + ' dias · ' + c.compras + ' compras</p>'
+    + '<a class="relatorio-atalho" href="/admin/carteira/cliente/' + encodeURIComponent(id)
+      + '/relatorio" target="_blank" rel="noopener">Ver relatório individual ↗</a>'
     + atalhosContato(c) + '<p id="f-status" class="nota" role="status"></p>'
     + '</div><button class="x" id="fx" type="button" aria-label="Fechar ficha">✕</button></div>'
   + '<div class="gcorpo">'

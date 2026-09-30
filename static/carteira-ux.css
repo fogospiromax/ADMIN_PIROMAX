@@ -153,6 +153,10 @@ td.nm{color:var(--roxo-forte)}
 tbody tr[data-id]:hover td{background:#f8f7fb}
 .gaveta{box-shadow:var(--sombra-forte);border-color:var(--linha)}
 .gtopo{padding:21px 24px;border-color:var(--linha)}
+.relatorio-atalho{display:inline-flex;align-items:center;min-height:34px;margin-top:11px;
+  padding:6px 12px;border:1px solid var(--roxo-borda);border-radius:8px;
+  background:#fff;color:var(--roxo);font-size:.78rem;font-weight:700;text-decoration:none}
+.relatorio-atalho:hover{background:var(--roxo-claro);border-color:var(--roxo)}
 .gcorpo{padding:0 24px 42px;background:#fafbfc;gap:16px}
 .gcorpo>.faixatopo{border-radius:0 0 12px 12px;box-shadow:0 2px 10px rgba(34,37,55,.045)}
 .gcorpo>.faixatopo::after{background:#fafbfc}
