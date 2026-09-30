@@ -147,6 +147,9 @@ async function test(name,fn){let c=boot();try{await fn(c);await settle();assert.
   assert.match(c.doc.getElementById('f-pedidos').textContent,/01\/08\/2026/);
   assert.equal(c.doc.getElementById('f-pedidos-especiais'),null);
   assert.ok(c.calls.some(x=>x.url.endsWith('/cliente/'+id+'/pedidos')));
+  const report=c.doc.querySelector('.relatorio-atalho');
+  assert.equal(report.getAttribute('href'),'/admin/carteira/cliente/'+id+'/relatorio');
+  assert.equal(report.getAttribute('target'),'_blank');
  });
  await test('Customer view separates current sales from the three-month estimate',c=>{
   const customer=c.data.dados.clientes[0];
