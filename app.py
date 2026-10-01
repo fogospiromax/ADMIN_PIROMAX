@@ -1067,6 +1067,7 @@ def init_carteira_db():
             telefone    TEXT DEFAULT '',
             email       TEXT DEFAULT '',
             etapa       TEXT DEFAULT 'novo',
+            etapa_origem TEXT DEFAULT '',
             motivo      TEXT DEFAULT '',
             obs         TEXT DEFAULT '',
             proximo     TEXT DEFAULT '',
@@ -1089,7 +1090,11 @@ def init_carteira_db():
     cur.execute("ALTER TABLE carteira_interacao ADD COLUMN IF NOT EXISTS usuario_id TEXT DEFAULT ''")
     cur.execute("ALTER TABLE carteira_tarefa ADD COLUMN IF NOT EXISTS responsavel TEXT DEFAULT ''")
     cur.execute("ALTER TABLE carteira_tarefa ADD COLUMN IF NOT EXISTS concluido_em DATE")
+    cur.execute("ALTER TABLE carteira_tarefa ADD COLUMN IF NOT EXISTS cancelada BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE carteira_tarefa ADD COLUMN IF NOT EXISTS cancelada_em DATE")
+    cur.execute("ALTER TABLE carteira_tarefa ADD COLUMN IF NOT EXISTS cancelada_por TEXT DEFAULT ''")
     cur.execute("ALTER TABLE carteira_lead ADD COLUMN IF NOT EXISTS responsavel_usuario TEXT DEFAULT ''")
+    cur.execute("ALTER TABLE carteira_lead ADD COLUMN IF NOT EXISTS etapa_origem TEXT DEFAULT ''")
 
     for coluna, tipo in (('segmento', "TEXT DEFAULT ''"), ('instagram', "TEXT DEFAULT ''"),
                          ('revenda', 'BOOLEAN DEFAULT FALSE'), ('revenda_de', "TEXT DEFAULT ''")):
@@ -1171,6 +1176,9 @@ def _carteira_dados():
     tarefas = [{'id': r['id'], 'cliente': r['cliente_id'], 'titulo': r['titulo'],
                 'prazo': r['prazo'].isoformat() if r['prazo'] else '',
                 'feita': bool(r['feita']), 'responsavel': r['responsavel'] or '',
+                'cancelada': bool(r['cancelada']),
+                'cancelada_em': r['cancelada_em'].isoformat() if r['cancelada_em'] else '',
+                'cancelada_por': r['cancelada_por'] or '',
                 'concluido_em': r['concluido_em'].isoformat() if r['concluido_em'] else ''}
                for r in cur.fetchall()]
 
@@ -1572,6 +1580,9 @@ def admin_carteira_contato():
         ids = [str(d['cliente_id']).strip()]
     if not ids:
         return jsonify({'success': False, 'erro': 'Nenhum cliente informado.'}), 400
+    etapa_depois = d.get('etapa') or ''
+    if etapa_depois and etapa_depois not in carteira.ETAPAS_ABERTAS:
+        return jsonify({'success': False, 'erro': 'Escolha uma etapa aberta válida para o contato.'}), 400
     try:
         atividade = carteira.validar_atividade(d, today_sp())
     except ValueError as erro:
@@ -1585,9 +1596,9 @@ def admin_carteira_contato():
     try:
         tarefa_id = str(d.get('tarefa_id') or '').strip()
         if tarefa_id:
-            cur.execute('SELECT cliente_id, feita FROM carteira_tarefa WHERE id=%s FOR UPDATE', (tarefa_id,))
+            cur.execute('SELECT cliente_id, feita, cancelada FROM carteira_tarefa WHERE id=%s FOR UPDATE', (tarefa_id,))
             tarefa = cur.fetchone()
-            if len(ids) != 1 or not tarefa or tarefa[0] != ids[0] or tarefa[1]:
+            if len(ids) != 1 or not tarefa or tarefa[0] != ids[0] or tarefa[1] or tarefa[2]:
                 return jsonify({'success': False, 'erro': 'A tarefa já foi concluída ou não pertence a este cadastro.'}), 409
         for cid in ids[:500]:
             cur.execute('INSERT INTO carteira_interacao '
@@ -1598,18 +1609,30 @@ def admin_carteira_contato():
             # Leads já têm um único próximo passo na própria ficha. Ao registrar
             # nova conversa, arquivamos o combinado anterior e o substituímos;
             # criar também uma tarefa aberta mostraria o retorno duas vezes.
-            cur.execute('SELECT proximo, proximo_em FROM carteira_lead WHERE id=%s FOR UPDATE', (cid,))
+            cur.execute('SELECT proximo, proximo_em, etapa FROM carteira_lead WHERE id=%s FOR UPDATE', (cid,))
             lead = cur.fetchone()
             if lead:
-                anterior, prazo_anterior = lead[0] or '', lead[1]
+                anterior, prazo_anterior, etapa_lead = lead[0] or '', lead[1], lead[2]
                 if anterior or prazo_anterior:
                     cur.execute('INSERT INTO carteira_tarefa '
                                 '(id, cliente_id, titulo, prazo, feita, concluido_em, responsavel, criado_em) '
                                 'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                                 (str(uuid.uuid4()), cid, anterior or 'Retorno anterior', prazo_anterior,
                                  True, today_sp(), atividade['responsavel'], now_sp_str()))
-                cur.execute('UPDATE carteira_lead SET proximo=%s, proximo_em=%s, atualizado_em=%s WHERE id=%s',
-                            (atividade['proximo'], atividade['proximo_em'], now_sp_str(), cid))
+                if etapa_lead in carteira.ETAPAS_ENCERRADAS and atividade['proximo']:
+                    cur.execute('INSERT INTO carteira_tarefa '
+                                '(id, cliente_id, titulo, prazo, feita, responsavel, criado_em) '
+                                'VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                                (str(uuid.uuid4()), cid, atividade['proximo'], atividade['proximo_em'],
+                                 False, atividade['responsavel'], now_sp_str()))
+                    cur.execute("UPDATE carteira_lead SET proximo='', proximo_em=NULL, atualizado_em=%s WHERE id=%s",
+                                (now_sp_str(), cid))
+                else:
+                    cur.execute('UPDATE carteira_lead SET proximo=%s, proximo_em=%s, atualizado_em=%s WHERE id=%s',
+                                (atividade['proximo'], atividade['proximo_em'], now_sp_str(), cid))
+                if etapa_depois:
+                    cur.execute('UPDATE carteira_lead SET etapa=%s, atualizado_em=%s WHERE id=%s',
+                                (etapa_depois, now_sp_str(), cid))
             elif atividade['proximo']:
                 cur.execute('INSERT INTO carteira_tarefa '
                             '(id, cliente_id, titulo, prazo, feita, responsavel, criado_em) '
@@ -1714,7 +1737,7 @@ def admin_carteira_tarefa_toggle(item_id):
     feita = bool((request.get_json(silent=True) or {}).get('feita'))
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('UPDATE carteira_tarefa SET feita=%s, concluido_em=%s WHERE id=%s',
+    cur.execute('UPDATE carteira_tarefa SET feita=%s, concluido_em=%s WHERE id=%s AND COALESCE(cancelada,FALSE)=FALSE',
                 (feita, today_sp() if feita else None, item_id))
     if not cur.rowcount:
         cur.close()
@@ -1789,6 +1812,9 @@ def admin_leads_previa():
                     'amostra': [L for _, L in novos[:10]],
                     'por_etapa': carteira._contar([L for _, L in novos],
                                                   lambda L: L.get('etapa') or 'novo'),
+                    'revisar_etapa': carteira._contar(
+                        [L for _, L in novos if L.get('etapa_origem')],
+                        lambda L: L['etapa_origem']),
                     'ignoradas': len(erros), 'detalhes': erros[:10]})
 
 
@@ -1813,10 +1839,10 @@ def admin_leads_upload():
         # "novo" apagaria o trabalho de qualificacao ja feito na planilha.
         cur.executemany(
             'INSERT INTO carteira_lead (id, nome, cidade, uf, contato, telefone, email, '
-            'etapa, segmento, instagram, obs, origem_arq, criado_em, atualizado_em) '
-            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            'etapa, etapa_origem, segmento, instagram, obs, origem_arq, criado_em, atualizado_em) '
+            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
             [(lid, L['nome'], L.get('cidade', ''), L.get('uf', ''), L.get('contato', ''),
-              L.get('telefone', ''), L.get('email', ''), L.get('etapa') or 'novo',
+              L.get('telefone', ''), L.get('email', ''), L.get('etapa') or 'novo', L.get('etapa_origem', ''),
               L.get('segmento', ''), L.get('instagram', ''), L.get('obs', ''),
               nome_arq, agora, agora)
              for lid, L in novos])
@@ -1845,6 +1871,8 @@ def admin_lead_novo():
     cidade = (d.get('cidade') or '').strip()[:120]
     lid = carteira.id_lead(nome, cidade)
     etapa = carteira.normalizar_etapa(d.get('etapa') or 'novo')
+    if etapa not in carteira.ETAPAS_ABERTAS:
+        return jsonify({'success': False, 'erro': 'Crie o lead em uma etapa aberta; registre o desfecho depois na ficha.'}), 400
     agora = now_sp_str()
     conn = get_db()
     cur = conn.cursor()
@@ -1913,60 +1941,107 @@ def admin_lead_concluir_retorno():
 @app.route('/admin/carteira/lead', methods=['POST'])
 @login_required
 def admin_lead_salvar():
-    d = request.get_json(silent=True) or {}
+    d = dict(request.get_json(silent=True) or {})
     lid = (d.get('id') or '').strip()
     if not lid:
         return jsonify({'success': False, 'erro': 'lead sem identificador'}), 400
-    etapa = d.get('etapa') or 'novo'
-    if etapa not in [e[0] for e in carteira.ETAPAS]:
-        etapa = 'novo'
+    etapa = d.get('etapa') if 'etapa' in d else None
+    if etapa is not None and etapa not in carteira.ETAPAS_VALIDAS:
+        return jsonify({'success': False, 'erro': 'Escolha uma etapa válida.'}), 400
     dono = str(d.get('responsavel_usuario') or '').strip() if 'responsavel_usuario' in d else None
     if dono is not None and dono not in ('', *USUARIOS):
         return jsonify({'success': False, 'erro': 'Escolha um responsável válido.'}), 400
+    if str(d.get('cliente_id') or '').strip():
+        return jsonify({'success': False, 'erro': 'Registre a revenda que abastece este lead no campo de compra por revenda.'}), 400
     conn = get_db()
     cur = conn.cursor()
-    # So grava o que veio no corpo. Um UPDATE de todas as colunas com os campos
-    # ausentes vazios apagaria cidade, telefone e contato a cada chamada
-    # parcial, e o lead perderia dado sem ninguem pedir.
-    limites = {'cidade': 120, 'uf': 60, 'contato': 120, 'telefone': 40, 'email': 160,
-               'motivo': 1000, 'obs': 2000, 'proximo': 300,
-               'segmento': 60, 'instagram': 300, 'revenda_de': 200}
-    campos, valores = [], []
-    if str(d.get('cliente_id') or '').strip():
-        cur.close()
-        conn.close()
-        return jsonify({'success': False, 'erro': 'Registre a revenda que abastece este lead no campo de compra por revenda.'}), 400
-    if dono is not None:
-        campos.append('responsavel_usuario=%s')
-        valores.append(dono)
+    try:
+        cur.execute('SELECT etapa, motivo, proximo, proximo_em FROM carteira_lead WHERE id=%s FOR UPDATE', (lid,))
+        anterior = cur.fetchone()
+        if not anterior:
+            return jsonify({'success': False, 'erro': 'Lead não encontrado.'}), 404
 
-    for k, lim in limites.items():
-        if k in d:
-            v = (d.get(k) or '')[:lim]
-            if k == 'revenda_de' and d.get('revenda') is False:
-                v = ''
-            campos.append(k + '=%s')
-            valores.append(carteira.normalizar_uf(v) if k == 'uf' else v)
-    if 'etapa' in d:
-        campos.append('etapa=%s')
-        valores.append(etapa)
-    if 'proximo_em' in d:
-        campos.append('proximo_em=%s')
-        valores.append(d.get('proximo_em') or None)
-    if 'revenda' in d:
-        campos.append('revenda=%s')
-        valores.append(bool(d.get('revenda')))
-    campos.append('atualizado_em=%s')
-    valores.append(now_sp_str())
-    valores.append(lid)
-    cur.execute('UPDATE carteira_lead SET ' + ', '.join(campos) + ' WHERE id=%s', valores)
-    if cur.rowcount == 0:
+        # Encerrar uma oportunidade exige decidir o destino dos compromissos.
+        # Manter transforma o retorno da ficha em tarefa; cancelar preserva as
+        # tarefas no banco com marca de cancelamento, sem poluir a agenda.
+        if etapa in carteira.ETAPAS_ENCERRADAS:
+            motivo = str(d.get('motivo', anterior[1]) or '').strip()
+            if etapa in ('perdido', 'fora_direto') and (not motivo or (etapa != anterior[0] and not str(d.get('motivo') or '').strip())):
+                return jsonify({'success': False, 'erro': 'Informe o motivo deste encerramento.'}), 400
+            cur.execute('SELECT id FROM carteira_tarefa WHERE cliente_id=%s AND feita=FALSE '
+                        'AND COALESCE(cancelada,FALSE)=FALSE FOR UPDATE', (lid,))
+            tarefas_pendentes = cur.fetchall()
+            proximo = str(d.get('proximo', anterior[2]) or '').strip()
+            prazo = d.get('proximo_em', anterior[3]) or None
+            if tarefas_pendentes or proximo or prazo:
+                resolver = d.get('resolver_pendencias')
+                if resolver not in ('manter', 'cancelar'):
+                    return jsonify({'success': False, 'erro': 'Escolha o que fazer com os retornos e tarefas pendentes.'}), 409
+                if resolver == 'cancelar':
+                    cur.execute('UPDATE carteira_tarefa SET cancelada=TRUE, cancelada_em=%s, '
+                                'cancelada_por=%s WHERE cliente_id=%s AND feita=FALSE '
+                                'AND COALESCE(cancelada,FALSE)=FALSE',
+                                (today_sp(), USUARIOS[sessao_valida(session, app.secret_key)], lid))
+                elif proximo or prazo:
+                    cur.execute('INSERT INTO carteira_tarefa '
+                                '(id, cliente_id, titulo, prazo, feita, responsavel, criado_em) '
+                                'VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                                (str(uuid.uuid4()), lid, proximo or 'Retorno combinado', prazo,
+                                 False, USUARIOS[sessao_valida(session, app.secret_key)], now_sp_str()))
+                d['proximo'] = ''
+                d['proximo_em'] = None
+
+        # Uma relação indireta encerrada para venda direta ainda pode ter
+        # acompanhamentos. Eles viram tarefas visíveis na agenda pessoal.
+        if (etapa or anterior[0]) in carteira.ETAPAS_ENCERRADAS and ('proximo' in d or 'proximo_em' in d):
+            if bool(d.get('proximo')) != bool(d.get('proximo_em')):
+                return jsonify({'success': False, 'erro': 'Preencha o próximo passo e a data juntos.'}), 400
+        if (etapa or anterior[0]) in carteira.ETAPAS_ENCERRADAS and d.get('proximo'):
+            cur.execute('INSERT INTO carteira_tarefa '
+                        '(id, cliente_id, titulo, prazo, feita, responsavel, criado_em) '
+                        'VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                        (str(uuid.uuid4()), lid, str(d['proximo'])[:300], d['proximo_em'],
+                         False, USUARIOS[sessao_valida(session, app.secret_key)], now_sp_str()))
+            d['proximo'] = ''
+            d['proximo_em'] = None
+
+        # Grava apenas os campos enviados, inclusive na mudança rápida de etapa.
+        limites = {'cidade': 120, 'uf': 60, 'contato': 120, 'telefone': 40, 'email': 160,
+                   'motivo': 1000, 'obs': 2000, 'proximo': 300,
+                   'segmento': 60, 'instagram': 300, 'revenda_de': 200}
+        campos, valores = [], []
+        if dono is not None:
+            campos.append('responsavel_usuario=%s')
+            valores.append(dono)
+        for k, lim in limites.items():
+            if k in d:
+                v = str(d.get(k) or '')[:lim]
+                if k == 'revenda_de' and d.get('revenda') is False:
+                    v = ''
+                campos.append(k + '=%s')
+                valores.append(carteira.normalizar_uf(v) if k == 'uf' else v)
+        if etapa is not None:
+            campos.append('etapa=%s')
+            valores.append(etapa)
+            if etapa != anterior[0] or d.get('confirmar_etapa'):
+                campos.append("etapa_origem=''")
+        if 'proximo_em' in d:
+            campos.append('proximo_em=%s')
+            valores.append(d.get('proximo_em') or None)
+        if 'revenda' in d:
+            campos.append('revenda=%s')
+            valores.append(bool(d.get('revenda')))
+        campos.append('atualizado_em=%s')
+        valores.append(now_sp_str())
+        valores.append(lid)
+        cur.execute('UPDATE carteira_lead SET ' + ', '.join(campos) + ' WHERE id=%s', valores)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
         cur.close()
         conn.close()
-        return jsonify({'success': False, 'erro': 'lead nao encontrado'}), 404
-    conn.commit()
-    cur.close()
-    conn.close()
     return jsonify({'success': True})
 
 
@@ -2100,11 +2175,11 @@ def admin_lead_etapa_lote():
     d = request.get_json(silent=True) or {}
     ids = [str(x).strip() for x in (d.get('ids') or []) if str(x).strip()]
     etapa = d.get('etapa')
-    if not ids or etapa not in [e[0] for e in carteira.ETAPAS]:
-        return jsonify({'success': False, 'erro': 'selecione os leads e a etapa'}), 400
+    if not ids or etapa not in carteira.ETAPAS_ABERTAS:
+        return jsonify({'success': False, 'erro': 'Em lote, escolha uma etapa aberta. Encerre cada negociação com seu motivo e suas pendências.'}), 400
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('UPDATE carteira_lead SET etapa=%s, atualizado_em=%s WHERE id = ANY(%s)',
+    cur.execute("UPDATE carteira_lead SET etapa=%s, etapa_origem='', atualizado_em=%s WHERE id = ANY(%s)",
                 (etapa, now_sp_str(), ids[:500]))
     n = cur.rowcount
     conn.commit()

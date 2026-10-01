@@ -944,18 +944,19 @@ def _backtestar(nomes, mat, emp, C, faixa, REF):
 
 # ── prospeccao ────────────────────────────────────────────────────────────────
 
-# As etapas seguem o vocabulario que a Piromax ja usa na planilha do Albatros:
-# qualificar, qualificado e em conversao. Traduzir para "novo/contato" perderia
-# a diferenca entre quem ainda nao foi olhado e quem ja foi aprovado mas ainda
-# nao recebeu ligacao, que e justamente onde a fila de prospeccao trabalha.
+# As etapas preservam as chaves antigas do banco e distinguem avaliação,
+# tentativa de abordagem, conversa efetiva e desfecho da venda direta.
 ETAPAS = [
     ('novo',        'A qualificar', 'Entrou na lista e ninguém olhou ainda.'),
-    ('qualificado', 'Qualificado',  'Serve como cliente, mas a conversa ainda não começou.'),
-    ('contato',     'Em conversa',  'Alguém já falou, a conversa está viva.'),
-    ('ganho',       'Ganhou',       'Negociação fechada. O histórico do lead continua separado da carteira.'),
-    ('perdido',     'Perdido',      'Não vai acontecer, com o motivo escrito.'),
+    ('qualificado', 'Pronto para contato', 'Faz sentido abordar, mas ainda não houve tentativa.'),
+    ('tentando',    'Tentando contato', 'Já houve uma tentativa, mas ainda não houve conversa efetiva.'),
+    ('contato',     'Em conversa', 'A empresa respondeu e a conversa comercial está em andamento.'),
+    ('ganho',       'Venda direta ganha', 'Venda direta confirmada; o histórico do lead permanece separado.'),
+    ('perdido',     'Venda direta perdida', 'Uma oportunidade real de venda direta terminou sem compra.'),
+    ('fora_direto', 'Fora do funil direto', 'Não há venda direta a perseguir; a relação indireta pode continuar.'),
 ]
-ETAPAS_ABERTAS = ('novo', 'qualificado', 'contato')
+ETAPAS_ABERTAS = ('novo', 'qualificado', 'tentando', 'contato')
+ETAPAS_ENCERRADAS = ('ganho', 'perdido', 'fora_direto')
 ETAPAS_VALIDAS = tuple(e[0] for e in ETAPAS)
 
 # Como cada rotulo de origem cai nas etapas acima.
@@ -963,13 +964,18 @@ ETAPA_SINONIMO = {
     'qualificar': 'novo', 'a qualificar': 'novo', 'novo': 'novo', 'lead': 'novo',
     'prospect': 'novo', 'frio': 'novo',
     'qualificado': 'qualificado', 'qualificada': 'qualificado', 'morno': 'qualificado',
+    'pronto para contato': 'qualificado', 'a abordar': 'qualificado',
+    'tentando': 'tentando', 'tentando contato': 'tentando',
+    'tentativa de contato': 'tentando', 'em abordagem': 'tentando',
     'em conversao': 'contato', 'em conversa': 'contato', 'conversando': 'contato',
     'contato': 'contato', 'em contato': 'contato', 'negociando': 'contato',
     'negociacao': 'contato', 'quente': 'contato', 'em negociacao': 'contato',
-    'ganho': 'ganho', 'ganhou': 'ganho', 'cliente': 'ganho', 'fechado': 'ganho',
-    'convertido': 'ganho',
-    'perdido': 'perdido', 'perdeu': 'perdido', 'descartado': 'perdido',
-    'sem interesse': 'perdido',
+    'ganho': 'ganho', 'ganhou': 'ganho', 'venda direta ganha': 'ganho',
+    'perdido': 'perdido', 'perdeu': 'perdido',
+    'sem interesse': 'perdido', 'venda direta perdida': 'perdido',
+    'fora do funil direto': 'fora_direto', 'fora direto': 'fora_direto',
+    'atendido por revenda': 'fora_direto',
+    'descartado': 'fora_direto',
 }
 
 # Sinonimos aceitos no cabecalho do CSV de leads. O objetivo e que o gestor
@@ -1015,12 +1021,23 @@ def normalizar_uf(txt):
 
 def normalizar_etapa(txt):
     """Traduz o rotulo da planilha para uma das etapas do funil."""
+    chave = str(txt or '').strip().lower()
+    if chave in ETAPAS_VALIDAS:
+        return chave
     t = normalizar(txt or '')
     if not t:
         return 'novo'
     if t in ETAPA_SINONIMO:
         return ETAPA_SINONIMO[t]
     return t if t in ETAPAS_VALIDAS else 'novo'
+
+
+def etapa_importada_para_revisao(txt):
+    """Rótulos ambíguos entram na triagem, sem presumir uma venda direta."""
+    if str(txt or '').strip().lower() in ETAPAS_VALIDAS:
+        return False
+    t = normalizar(txt or '')
+    return bool(t and t not in ETAPA_SINONIMO and t not in ETAPAS_VALIDAS)
 
 
 def id_lead(nome, cidade=''):
@@ -1075,12 +1092,14 @@ def ler_csv_leads(texto):
         nome = pega('nome')
         if not nome:
             continue
+        etapa_origem = pega('etapa', 60)
         leads.append({
             'nome': nome.upper(), 'cidade': pega('cidade', 120),
             'uf': normalizar_uf(pega('uf', 60)),
             'contato': pega('contato', 120), 'telefone': pega('telefone', 40),
             'email': pega('email', 160),
-            'etapa': normalizar_etapa(pega('etapa', 60)),
+            'etapa': normalizar_etapa(etapa_origem),
+            'etapa_origem': etapa_origem if etapa_importada_para_revisao(etapa_origem) else '',
             'segmento': pega('segmento', 60),
             'instagram': pega('instagram', 300),
             'obs': pega('obs', 1000),
@@ -1122,11 +1141,14 @@ def analisar_leads(leads, clientes_dados=None, hoje=None):
         'abertos': sum(len(por_etapa[k]) for k in ETAPAS_ABERTAS),
         'ganhos': len(por_etapa['ganho']),
         'perdidos': len(por_etapa['perdido']),
+        'fora_direto': len(por_etapa['fora_direto']),
         # Taxa sobre o que ja foi decidido, nao sobre a lista inteira: enquanto
         # a maior parte esta em aberto, dividir por todos daria um numero
         # artificialmente baixo que so cai conforme se importa mais lead.
         'conversao': (len(por_etapa['ganho']) / fechados * 100) if fechados else None,
         'revendas': sum(1 for d in saida if d['revenda']),
+        'revendas_em_desfecho_direto': sum(1 for d in saida
+                                           if d['revenda'] and d['etapa'] in ('ganho', 'perdido')),
         'por_fornecedor': _contar([d for d in saida if d['revenda']],
                                   lambda d: d['revenda_de'] or 'revenda não informada'),
         'por_segmento': _contar(saida, lambda d: d.get('segmento') or 'sem segmento'),
@@ -1220,7 +1242,7 @@ def retornos_pendentes(tarefas):
     """Menor prazo em aberto por cadastro, sem misturar lead e cliente direto."""
     retorno = {}
     for t in tarefas:
-        if t.get('feita') or not t.get('prazo'):
+        if t.get('feita') or t.get('cancelada') or not t.get('prazo'):
             continue
         cid = t['cliente']
         try:
