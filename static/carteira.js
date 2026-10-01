@@ -1940,8 +1940,9 @@ $('a-corpo').addEventListener('click', function (e) {
 });
 
 /* ═══ PROSPECÇÃO ═════════════════════════════════════════════════════════ */
-var CORES_ETAPA = { novo: 'var(--frio)', qualificado: 'var(--s1)', contato: 'var(--atencao)',
-                    ganho: 'var(--bom)', perdido: 'var(--ruim)' };
+var CORES_ETAPA = { novo: 'var(--frio)', qualificado: 'var(--s1)', tentando: 'var(--roxo)',
+                    contato: 'var(--atencao)', ganho: 'var(--bom)', perdido: 'var(--ruim)',
+                    fora_direto: 'var(--texto3)' };
 var prFiltro = { seg: '', reg: '' };
 
 function prVisiveis() {

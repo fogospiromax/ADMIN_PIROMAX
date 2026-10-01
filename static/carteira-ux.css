@@ -166,11 +166,12 @@ tbody tr[data-id]:hover td{background:#f8f7fb}
 .hist .it{padding:8px 0;line-height:1.55}
 details.saiba summary::before{content:'›';display:inline-block;margin-right:7px;font-size:1.05em;line-height:1;transition:transform .15s ease}
 details.saiba[open] summary::before{transform:rotate(90deg)}
-.funil{display:flex;gap:13px;overflow-x:auto;padding:2px 2px 12px;scroll-snap-type:x proximity}
-.funil .col{flex:0 0 clamp(220px,22vw,270px);padding:14px;border:1px solid var(--linha);border-radius:12px;background:#f3f4f7;scroll-snap-align:start;min-height:180px}
+.funil{display:flex;align-items:flex-start;gap:13px;overflow-x:auto;padding:2px 2px 12px;scroll-snap-type:x proximity}
+.funil .col{flex:1 0 250px;padding:14px;border:1px solid var(--linha);border-radius:12px;background:#f3f4f7;scroll-snap-align:start;min-height:180px}
 .funil .col .cab{padding:2px 2px 9px;border-bottom:1px solid var(--linha);font-size:.81rem}
 .funil .col .cab .n{background:#fff;border:1px solid var(--linha);border-radius:99px;padding:3px 7px;color:var(--texto2)}
 .funil .pilha{max-height:480px;gap:9px}
+.funil .pilha>.lead-item{flex:0 0 auto}
 .funil .lead{padding:12px;border-color:#e1e4eb;border-radius:9px;gap:4px;box-shadow:0 1px 3px rgba(25,23,43,.03)}
 .funil .lead:hover{background:#fff;border-color:var(--roxo);box-shadow:0 3px 12px rgba(105,69,189,.1)}
 .resultados-resumo>.cartao{border-radius:10px}
