@@ -17,11 +17,16 @@ var LEAD_IX = {};                 /* id do lead -> objeto */
 var estado = { tela: 'hoje', tipo: 'todos', limite: 10, view: 'todos',
                busca: '', uf: '', cidade: '', ord: 'receita', asc: false, marcados: {},
                prView: 'funil', prBusca: '', prUf: '', prCidade: '', prEtapa: '',
-               prRevenda: '', prMarcados: {}, prAcao: '' };
+               prRevenda: '', prMarcados: {}, prAcao: '', prEscopo: 'ativos' };
 var abertaId = null;              /* ficha aberta, para reabrir após gravar */
 var abertoTipo = 'cliente';
 var USUARIO_ATUAL = document.body.dataset.usuario || '';
 var USUARIOS_CRM = [['flavia','Flávia'],['tiago','Tiago'],['fernando','Fernando']];
+var ETAPAS_ABERTAS = ['novo','qualificado','tentando','contato'];
+var ETAPAS_ENCERRADAS = ['ganho','perdido','fora_direto'];
+function etapaEncerrada(etapa) { return ETAPAS_ENCERRADAS.indexOf(etapa) >= 0; }
+function etapasAbertas() { return ETAPAS.filter(function(e){return ETAPAS_ABERTAS.indexOf(e[0]) >= 0;}); }
+function etapasEncerradas() { return ETAPAS.filter(function(e){return etapaEncerrada(e[0]);}); }
 function nomeUsuario(id) {
   var u = USUARIOS_CRM.find(function(x){return x[0]===id;});
   return u ? u[1] : 'Sem responsável';
@@ -281,14 +286,14 @@ window.addEventListener('beforeunload', function (e) {
 $('tela').addEventListener('input', estadoFicha);
 $('tela').addEventListener('change', estadoFicha);
 function agendaItens() {
-  var itens = (TAREFAS || []).map(function (t) {
+  var itens = (TAREFAS || []).filter(function(t){return !t.cancelada;}).map(function (t) {
     var pessoa = IX[t.cliente] || LEAD_IX[t.cliente];
     return {id:t.id, origem:'tarefa', cliente:t.cliente, nome:pessoa ? pessoa.nome : 'Cadastro a revisar',
       tipo:IX[t.cliente] ? 'cliente' : 'lead', titulo:t.titulo, prazo:t.prazo || '', feita:t.feita,
       concluido:t.concluido_em || '', responsavel:t.responsavel || (pessoa && pessoa.responsavel) || ''};
   });
   if (PROSPEC) PROSPEC.leads.forEach(function (l) {
-    if (['ganho','perdido'].indexOf(l.etapa) >= 0 || (!l.proximo && !l.proximo_em)) return;
+    if (etapaEncerrada(l.etapa) || (!l.proximo && !l.proximo_em)) return;
     itens.push({id:l.id, origem:'lead', cliente:l.id, nome:l.nome, tipo:'lead', titulo:l.proximo || 'Definir próximo passo',
       prazo:l.proximo_em || '', feita:false, responsavel:''});
   });
@@ -336,6 +341,11 @@ function formularioContato(id) {
   return '<div class="cartao" id="bloco-contato"><h3>Registrar contato</h3><div class="grade g2" style="margin-top:12px">'
     + '<div class="campo"><label for="fc-resultado">Resultado</label><select id="fc-resultado">'+Object.keys(RESULTADOS).map(function(k){return '<option value="'+k+'">'+RESULTADOS[k]+'</option>';}).join('')+'</select></div>'
     + '<div class="assinatura-contato"><span>Registrado por</span><strong>'+esc(nomeUsuario(USUARIO_ATUAL))+'</strong><small>Identificado automaticamente pelo login</small></div></div>'
+    + (LEAD_IX[id] && !etapaEncerrada(LEAD_IX[id].etapa) ? '<div class="campo" style="margin-top:12px">'
+      + '<label for="fc-etapa-apos">Etapa depois deste contato (opcional)</label><select id="fc-etapa-apos">'
+      + '<option value="">Manter '+esc(rotuloEtapa(LEAD_IX[id].etapa))+'</option>'
+      + etapasAbertas().map(function(e){return '<option value="'+e[0]+'">'+esc(e[1])+'</option>';}).join('')
+      + '</select><p class="nota">Sem resposta: Tentando contato. Conversa efetiva: Em conversa.</p></div>' : '')
     + '<div class="campo" style="margin-top:12px"><label for="fc-nota">Resumo da conversa ou tentativa</label><textarea id="fc-nota" rows="3" maxlength="1000" placeholder="O que aconteceu e o que ficou combinado?"></textarea></div>'
     + '<div class="grade g2" style="margin-top:12px"><div class="campo"><label for="fc-proximo">Próximo passo</label><input id="fc-proximo" maxlength="300" placeholder="Ex.: retornar sobre o orçamento"></div><div class="campo"><label for="fc-prazo">Data do próximo passo</label><input id="fc-prazo" type="date" min="'+hojeISO()+'"></div></div>'
     + '<div class="campo" style="margin-top:12px"><label for="fc-concluir">Concluir uma tarefa com este contato</label><select id="fc-concluir"><option value="">Não concluir tarefa</option>'+(TAREFAS||[]).filter(function(t){return t.cliente===id&&!t.feita;}).map(function(t){return '<option value="'+esc(t.id)+'">'+esc(t.titulo)+'</option>';}).join('')+'</select></div>'
@@ -347,8 +357,15 @@ function formularioContato(id) {
 }
 function painelTarefas(id) {
   var itens = agendaItens().filter(function(t){return t.cliente===id && !t.feita;});
+  var historico = (TAREFAS || []).filter(function(t){return t.cliente===id && (t.feita || t.cancelada);})
+    .sort(function(a,b){return (b.cancelada_em || b.concluido_em || '').localeCompare(a.cancelada_em || a.concluido_em || '');});
   return '<div class="cartao"><h3>Próximas ações</h3>'+ (itens.length?itens.map(linhaAgenda).join(''):'<p class="nota">Nenhuma tarefa pendente.</p>')
-    + '<details class="saiba"><summary>Agendar tarefa sem registrar contato</summary><div class="campo"><label for="ft-titulo">O que precisa ser feito</label><input id="ft-titulo" maxlength="300"></div><div class="grade g2"><div class="campo"><label for="ft-prazo">Prazo</label><input id="ft-prazo" type="date"></div><div class="campo"><label for="ft-responsavel">Responsável</label><input id="ft-responsavel" maxlength="120"></div></div><div class="acoes"><button data-a="tarefa">Agendar tarefa</button></div></details></div>';
+    + '<details class="saiba"><summary>Agendar tarefa sem registrar contato</summary><div class="campo"><label for="ft-titulo">O que precisa ser feito</label><input id="ft-titulo" maxlength="300"></div><div class="grade g2"><div class="campo"><label for="ft-prazo">Prazo</label><input id="ft-prazo" type="date"></div><div class="campo"><label for="ft-responsavel">Responsável</label><input id="ft-responsavel" maxlength="120"></div></div><div class="acoes"><button data-a="tarefa">Agendar tarefa</button></div></details>'
+    + (historico.length ? '<details class="saiba"><summary>Histórico de tarefas ('+historico.length+')</summary><div class="hist">'
+      + historico.map(function(t){return '<div class="it"><span class="d">'+dia(t.cancelada_em || t.concluido_em)+'</span>'
+          + '<span class="t"><b>'+(t.cancelada?'Cancelada':'Concluída')+'</b> · '+esc(t.titulo)
+          + (t.cancelada_por?' · '+esc(t.cancelada_por):'')+'</span></div>';}).join('')
+      + '</div></details>' : '')+'</div>';
 }
 function atalhosContato(p) {
   var tel = String(p.telefone || '').replace(/\D/g,'');
@@ -1142,6 +1159,8 @@ function barrasAnoMini(c, anos) {
 function fichaLead(id) {
   var L = LEAD_IX[id];
   if (!L) return '';
+  var pendentes = (TAREFAS || []).filter(function(t){return t.cliente===id && !t.feita && !t.cancelada;});
+  var qtdPendencias = pendentes.length + ((L.proximo || L.proximo_em) ? 1 : 0);
   return '<button class="veu" id="veu" type="button" aria-label="Fechar"></button>'
   + '<aside class="gaveta" role="dialog" aria-modal="true" aria-label="Lead ' + esc(L.nome) + '">'
   + '<div class="gtopo"><div style="min-width:0">'
@@ -1152,9 +1171,36 @@ function fichaLead(id) {
       + esc([L.cidade, L.uf].filter(Boolean).join(' / ') || 'sem cidade') + '</p>'
     + '</div><button class="x" id="fx" type="button" aria-label="Fechar ficha">✕</button></div>'
   + '<div class="gcorpo">'
-    + '<p id="f-status" class="nota" role="status"></p>' + atalhosContato(L)
-    + formularioContato(id) + painelTarefas(id)
-    + '<details class="cartao cadastro-detalhes"><summary>Cadastro e etapa do lead</summary>'
+    + '<p id="f-status" class="nota" role="status"></p>'
+    + '<section class="cartao lead-fluxo" aria-label="Etapa comercial do lead">'
+      + '<div class="lead-fluxo-top"><div><span class="lead-fluxo-label">Etapa comercial</span>'
+      + '<strong>' + esc(rotuloEtapa(L.etapa)) + '</strong></div>'
+      + '<span class="lead-fluxo-relacao">' + (L.revenda ? 'Cliente indireto · compra por revenda' : 'Prospecção de venda direta') + '</span></div>'
+      + '<div class="lead-fluxo-acoes"><div class="campo"><label for="fl-etapa-rapida">Mover para outra etapa aberta</label>'
+      + '<select id="fl-etapa-rapida">'
+      + (etapaEncerrada(L.etapa) ? '<option value="" selected>Reabrir em…</option>' : '')
+      + etapasAbertas().map(function(e){return '<option value="'+e[0]+'"'+(L.etapa===e[0]?' selected':'')+'>'+esc(e[1])+'</option>';}).join('')
+      + '</select></div><button type="button" data-a="lead-encerrar-abrir">'
+      + (etapaEncerrada(L.etapa) ? 'Alterar desfecho' : 'Concluir negociação') + '</button></div>'
+      + (L.etapa_origem ? '<div class="lead-importacao-alerta"><span>Etapa da planilha: “'+esc(L.etapa_origem)+'”. Confirme a classificação deste lead.</span>'
+        + '<button type="button" data-a="lead-confirmar-etapa">Confirmar '+esc(rotuloEtapa(L.etapa))+'</button></div>' : '')
+      + '<div id="fl-encerramento" class="lead-encerramento" hidden>'
+      + '<div class="campo"><label for="fl-desfecho">Desfecho da venda direta</label><select id="fl-desfecho">'
+      + '<option value="">Escolha o desfecho…</option>'
+      + etapasEncerradas().map(function(e){return '<option value="'+e[0]+'"'+(L.etapa===e[0]?' selected':'')+'>'+esc(e[1])+'</option>';}).join('')
+      + '</select></div>'
+      + '<div class="campo"><label for="fl-motivo">Motivo ou observação</label>'
+      + '<textarea id="fl-motivo" rows="2" maxlength="1000" placeholder="Ex.: atendido por revenda, sem interesse, venda confirmada">'+esc(etapaEncerrada(L.etapa) ? (L.motivo || '') : '')+'</textarea>'
+      + '<p class="nota">Obrigatório para venda direta perdida ou fora do funil direto.</p></div>'
+      + (qtdPendencias ? '<div class="campo"><label for="fl-pendencias">'+qtdPendencias+' compromisso(s) pendente(s)</label>'
+          + '<select id="fl-pendencias"><option value="">Escolha o destino das pendências…</option>'
+          + '<option value="manter">Manter na agenda para acompanhamento</option>'
+          + '<option value="cancelar">Cancelar pendências e tirar da agenda</option></select>'
+          + '<p class="nota">O histórico de contatos e tarefas permanece salvo.</p></div>' : '')
+      + '<div class="acoes"><button type="button" class="pri" data-a="lead-encerrar">Salvar desfecho</button>'
+      + '<button type="button" data-a="lead-encerrar-cancelar">Voltar</button></div></div></section>'
+    + atalhosContato(L) + formularioContato(id) + painelTarefas(id)
+    + '<details class="cartao cadastro-detalhes"><summary>Dados e relacionamento do lead</summary>'
     + '<div class="cartao"' + (L.revenda ? ' style="border-color:#f0dcae"' : '') + '>'
       + '<h3>Compra Piromax por revenda?</h3>'
       + '<p class="nota" style="margin-top:4px;margin-bottom:9px">Marque quando esta empresa já compra '
@@ -1170,10 +1216,6 @@ function fichaLead(id) {
       + (D && D.clientes ? D.clientes.map(function (c) {
           return '<option value="' + esc(c.nome) + '">'; }).join('') : '')
       + '</datalist></div></div>'
-    + '<div class="campo"><label for="fl-etapa">Etapa</label><select id="fl-etapa">'
-      + ETAPAS.map(function (e) {
-          return '<option value="' + e[0] + '"' + (L.etapa === e[0] ? ' selected' : '') + '>' + e[1] + '</option>';
-        }).join('') + '</select></div>'
     + '<div class="grade g2">'
       + '<div class="campo"><label for="fl-contato">Contato</label><input id="fl-contato" value="' + esc(L.contato) + '"></div>'
       + '<div class="campo"><label for="fl-tel">Telefone</label><input id="fl-tel" value="' + esc(L.telefone) + '"></div>'
@@ -1196,8 +1238,6 @@ function fichaLead(id) {
       + '<input id="fl-prox" value="' + esc(L.proximo) + '" placeholder="Ex.: mandar tabela de preço"></div>'
     + '<div class="campo"><label for="fl-quando">Para quando</label>'
       + '<input id="fl-quando" type="date" value="' + esc(L.proximo_em || '') + '"></div>'
-    + '<div class="campo"><label for="fl-motivo">Observação ou motivo da perda</label>'
-      + '<textarea id="fl-motivo" rows="2">' + esc(L.motivo || L.obs || '') + '</textarea></div>'
     + '<div class="acoes"><button class="pri" type="button" data-a="lead-salvar">Salvar lead</button>'
       + '<button class="lead-excluir" type="button" data-a="lead-remover">Excluir lead</button>'
       + '</div></details>'
@@ -1237,7 +1277,7 @@ function abrirNovoLead() {
         + '<datalist id="nl-segs">' + ((PROSPEC && PROSPEC.por_segmento) || []).map(function (p) {
             return '<option value="' + esc(p[0]) + '">'; }).join('') + '</datalist></div>'
       + '<div class="campo"><label for="nl-etapa">Etapa</label><select id="nl-etapa">'
-        + ETAPAS.map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
+        + etapasAbertas().map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
         + '</select></div>'
     + '</div>'
     + campo('nl-insta', 'Instagram ou site', 'placeholder="cole o link do perfil"')
@@ -1313,6 +1353,34 @@ $('tela').addEventListener('click', function (e) {
   if (a === 'pedidos-recarregar') { carregarPedidos(id); return; }
   if (a === 'lead-criar') { criarLead(b); return; }
   if (a === 'fechar') { fecharFicha(); return; }
+  if (a === 'lead-encerrar-abrir') {
+    $('fl-encerramento').hidden = false;
+    $('fl-desfecho').focus();
+    return;
+  }
+  if (a === 'lead-encerrar-cancelar') {
+    $('fl-encerramento').hidden = true;
+    return;
+  }
+  if (a === 'lead-confirmar-etapa') {
+    gravar('/admin/carteira/lead',{id:id,etapa:LEAD_IX[id].etapa,confirmar_etapa:true},'Etapa confirmada.');
+    return;
+  }
+  if (a === 'lead-encerrar') {
+    var desfecho = $('fl-desfecho').value, motivo = $('fl-motivo').value.trim();
+    if (!desfecho) { recado('Escolha o desfecho.',true); $('fl-desfecho').focus(); return; }
+    if (['perdido','fora_direto'].indexOf(desfecho)>=0 && !motivo) {
+      recado('Informe o motivo deste encerramento.',true); $('fl-motivo').focus(); return;
+    }
+    if ($('fl-pendencias') && !$('fl-pendencias').value) {
+      recado('Escolha o que fazer com os compromissos pendentes.',true); $('fl-pendencias').focus(); return;
+    }
+    gravar('/admin/carteira/lead', {
+      id:id, etapa:desfecho, motivo:motivo,
+      resolver_pendencias:$('fl-pendencias') ? $('fl-pendencias').value : ''
+    }, 'Desfecho salvo.', ['fl-desfecho','fl-motivo','fl-pendencias']);
+    return;
+  }
   if (a === 'ir-contato') {
     var alvo = $('fc-nota');
     if (alvo) { alvo.scrollIntoView({ block: 'center' }); alvo.focus(); }
@@ -1334,12 +1402,12 @@ $('tela').addEventListener('click', function (e) {
   } else if (a === 'lead-salvar') {
     gravar('/admin/carteira/lead', {
       id: id, responsavel_usuario:$('fl-dono').value,
-      etapa: $('fl-etapa').value, contato: $('fl-contato').value,
+      contato: $('fl-contato').value,
       telefone: $('fl-tel').value, cidade: $('fl-cidade').value, uf: $('fl-uf').value,
-      proximo: $('fl-prox').value, proximo_em: $('fl-quando').value, motivo: $('fl-motivo').value,
+      proximo: $('fl-prox').value, proximo_em: $('fl-quando').value,
       instagram: $('fl-insta').value, segmento: $('fl-seg').value,
       revenda: $('fl-revenda').checked, revenda_de: $('fl-revde').value
-    }, 'Lead salvo.', Object.keys(capturarCampos()).filter(function(k){return k.indexOf('fl-')===0;}));
+    }, 'Lead salvo.', Object.keys(capturarCampos()).filter(function(k){return k.indexOf('fl-')===0 && !['fl-etapa-rapida','fl-desfecho','fl-motivo','fl-pendencias'].includes(k);}));
   } else if (a === 'lead-remover') {
     if (gravando || !window.confirm('Excluir o lead '+LEAD_IX[id].nome+' e todo o seu histórico de contatos e tarefas? Esta ação não pode ser desfeita.')) return;
     gravando = true; b.disabled = true; estadoFicha();
@@ -1356,6 +1424,17 @@ $('tela').addEventListener('click', function (e) {
   }
 });
 
+$('tela').addEventListener('change', function(e) {
+  if (e.target.id !== 'fl-etapa-rapida' || !abertaId || !LEAD_IX[abertaId]) return;
+  var etapa = e.target.value, anterior = LEAD_IX[abertaId].etapa;
+  if (!etapa || etapa === anterior) return;
+  gravar('/admin/carteira/lead', {id:abertaId, etapa:etapa},
+    'Etapa alterada para '+rotuloEtapa(etapa)+'.', ['fl-etapa-rapida']).then(function(j) {
+      if (!j.success && $('fl-etapa-rapida')) $('fl-etapa-rapida').value = anterior;
+      if (j.success && etapaEncerrada(anterior)) { estado.prEscopo='ativos'; estado.prEtapa=''; pintarProspeccao(); }
+    });
+});
+
 function gravarContato(id, botao) {
   if(gravando) return;
   var t=$('fc-nota').value.trim(), prox=$('fc-proximo').value.trim(), prazo=$('fc-prazo').value, resultado=$('fc-resultado').value;
@@ -1364,8 +1443,9 @@ function gravarContato(id, botao) {
     recado('Informe o próximo passo e a data do retorno.',true);$('fc-proximo').focus();return;
   }
   if(prazo && prazo<hojeISO()){recado('Agende o retorno para hoje ou uma data futura.',true);return;}
-  return gravar('/admin/carteira/contato',{cliente_id:id,resumo:t,resultado:resultado,proximo:prox,proximo_em:prazo,tarefa_id:$('fc-concluir').value},
-    'Contato salvo'+(prox?' e próximo passo agendado.':'.'),['fc-nota','fc-resultado','fc-proximo','fc-prazo','fc-concluir']);
+  var etapaDepois=$('fc-etapa-apos') ? $('fc-etapa-apos').value : '';
+  return gravar('/admin/carteira/contato',{cliente_id:id,resumo:t,resultado:resultado,proximo:prox,proximo_em:prazo,tarefa_id:$('fc-concluir').value,etapa:etapaDepois},
+    'Contato salvo'+(prox?' e próximo passo agendado.':'.'),['fc-nota','fc-resultado','fc-proximo','fc-prazo','fc-concluir','fc-etapa-apos']);
 }
 
 function salvarFicha(id, extra, msg) {
@@ -1868,14 +1948,17 @@ function prVisiveis() {
   var P = PROSPEC || { leads: [] };
   var q = estado.prBusca.trim().toLowerCase();
   return P.leads.filter(function (x) {
-    return (!prFiltro.seg || (x.segmento || 'sem segmento') === prFiltro.seg)
+    return ((estado.prEscopo === 'encerrados') === etapaEncerrada(x.etapa))
+        && (!prFiltro.seg || (x.segmento || 'sem segmento') === prFiltro.seg)
         && (!prFiltro.reg || (x.regiao_nome || 'sem estado') === prFiltro.reg)
         && (!estado.prUf || x.uf === estado.prUf)
         && (!estado.prCidade || (x.cidade || '') === estado.prCidade)
         && (!estado.prEtapa || x.etapa === estado.prEtapa)
         && (!estado.prDono || (estado.prDono==='meus' ? donoRegistro(x.id)===USUARIO_ATUAL
              : estado.prDono==='sem' ? !donoRegistro(x.id) : donoRegistro(x.id)===estado.prDono))
-        && (!estado.prAcao || (estado.prAcao==='semacao' ? (!x.proximo && !proximaTarefa(x.id) && ['ganho','perdido'].indexOf(x.etapa)<0) : (proximaTarefa(x.id) && proximaTarefa(x.id).prazo && proximaTarefa(x.id).prazo<hojeISO())))
+        && (!estado.prAcao || (estado.prAcao==='revisar' ? !!x.etapa_origem
+          : estado.prAcao==='semacao' ? (!x.proximo && !proximaTarefa(x.id) && !etapaEncerrada(x.etapa))
+          : (proximaTarefa(x.id) && proximaTarefa(x.id).prazo && proximaTarefa(x.id).prazo<hojeISO())))
         && (!estado.prRevenda || (estado.prRevenda === 'sim' ? x.revenda : !x.revenda))
         && (!q || x.nome.toLowerCase().indexOf(q) >= 0
              || (x.cidade || '').toLowerCase().indexOf(q) >= 0);
@@ -1883,10 +1966,21 @@ function prVisiveis() {
 }
 
 function pintarProspeccao() {
-  var P = PROSPEC || { leads: [], etapas: [], total: 0, abertos: 0, ganhos: 0, perdidos: 0,
+  var P = PROSPEC || { leads: [], etapas: [], total: 0, abertos: 0, ganhos: 0, perdidos: 0, fora_direto: 0,
                        revendas: 0, por_segmento: [], por_regiao: [], cidades: [],
                        acompanhar: { vencidos: [], hoje: [], proximos: [], sem_data: [], total: 0 } };
-  var vis = prVisiveis().sort(function(a,b){var ta=proximaTarefa(a.id),tb=proximaTarefa(b.id);return ((ta && ta.prazo)||'9999').localeCompare((tb && tb.prazo)||'9999')||a.nome.localeCompare(b.nome);});
+  var vis = prVisiveis().sort(function(a,b){
+    function ordem(x) {
+      var t=proximaTarefa(x.id), prazo=(t && t.prazo) || x.proximo_em || '';
+      if (prazo && prazo < hojeISO()) return [0,prazo];
+      if (prazo === hojeISO()) return [1,prazo];
+      if (!prazo && !etapaEncerrada(x.etapa) && x.etapa !== 'novo') return [2,''];
+      if (prazo) return [3,prazo];
+      return [4,''];
+    }
+    var aa=ordem(a),bb=ordem(b);
+    return aa[0]-bb[0] || aa[1].localeCompare(bb[1]) || a.nome.localeCompare(b.nome);
+  });
   var A = P.acompanhar || { vencidos: [], hoje: [], proximos: [], sem_data: [], total: 0 };
 
   /* ── Para acompanhar: o que ficou combinado e tem data ── */
@@ -1944,10 +2038,13 @@ function pintarProspeccao() {
     + '</div><div class="pr-filtros-secundaria">'
     + '<label for="pr-etapa" style="position:absolute;left:-9999px">Etapa</label>'
     + '<select id="pr-etapa" class="filtro"><option value="">Todas as etapas</option>'
-      + ETAPAS.map(function (e) {
+      + (estado.prEscopo === 'encerrados' ? etapasEncerradas() : etapasAbertas()).map(function (e) {
           return '<option value="' + e[0] + '"' + (estado.prEtapa === e[0] ? ' selected' : '') + '>'
             + e[1] + '</option>'; }).join('') + '</select>'
-    + '<label for="pr-acao" class="sr-only">Pendências</label><select id="pr-acao" class="filtro"><option value="">Todas as pendências</option><option value="semacao"'+(estado.prAcao==='semacao'?' selected':'')+'>Sem próxima ação</option><option value="vencido"'+(estado.prAcao==='vencido'?' selected':'')+'>Retorno vencido</option></select>'
+    + '<label for="pr-acao" class="sr-only">Pendências</label><select id="pr-acao" class="filtro"><option value="">Todas as pendências</option>'
+    + (estado.prEscopo==='ativos' ? '<option value="semacao"'+(estado.prAcao==='semacao'?' selected':'')+'>Sem próxima ação</option>' : '')
+    + (estado.prEscopo==='ativos' ? '<option value="revisar"'+(estado.prAcao==='revisar'?' selected':'')+'>Etapas da importação a revisar</option>' : '')
+    + '<option value="vencido"'+(estado.prAcao==='vencido'?' selected':'')+'>Retorno vencido</option></select>'
     + '<label for="pr-dono" class="sr-only">Responsável pelo lead</label><select id="pr-dono" class="filtro">'
     + '<option value="">Todos os responsáveis</option><option value="meus"'+(estado.prDono==='meus'?' selected':'')+'>Meus leads</option><option value="sem"'+(estado.prDono==='sem'?' selected':'')+'>Sem responsável</option>'
     + USUARIOS_CRM.map(function(u){return '<option value="'+u[0]+'"'+(estado.prDono===u[0]?' selected':'')+'>'+u[1]+'</option>';}).join('')+'</select>'
@@ -1966,7 +2063,7 @@ function pintarProspeccao() {
     + '</div></div>';
 
   /* ── funil: todas as colunas rolam por dentro, ninguém fica escondido ── */
-  var colunas = ETAPAS.map(function (e) {
+  var colunas = (estado.prEscopo === 'encerrados' ? etapasEncerradas() : etapasAbertas()).map(function (e) {
     var l = vis.filter(function (x) { return x.etapa === e[0]; });
     return '<div class="cartao col"><div class="cab">'
       + '<i style="background:' + CORES_ETAPA[e[0]] + '"></i><h3>' + e[1] + '</h3>'
@@ -1990,7 +2087,8 @@ function pintarProspeccao() {
           + '<td class="nm">' + esc(x.nome) + '</td>'
           + '<td>' + esc(x.cidade || '—') + '</td><td>' + esc(x.uf || '—') + '</td>'
           + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(x.segmento || '—') + '</td>'
-          + '<td><span class="selo s-classe">' + esc(rotuloEtapa(x.etapa)) + '</span></td>'
+          + '<td>' + seletorEtapaLead(x, 'lista')
+          + (x.etapa_origem ? '<small class="lead-revisar">Revisar etapa importada</small>' : '') + '</td>'
           + '<td class="mono" style="font-size:.78rem">' + esc(x.telefone || '—') + '</td>'
           + '<td>' + (x.instagram
               ? '<a href="' + esc(x.instagram) + '" target="_blank" rel="noopener noreferrer" '
@@ -2030,13 +2128,19 @@ function pintarProspeccao() {
   $('pr-corpo').innerHTML =
     '<div class="heroi" style="margin-top:0">'
       + '<div><div class="n">' + P.abertos + '</div><div class="sub">leads em aberto</div></div>'
-      + '<div class="sub">' + P.total + ' na lista · ' + P.ganhos + ' ganhos · ' + P.perdidos + ' perdidos'
+      + '<div class="sub">' + P.total + ' na lista · ' + P.ganhos + ' ganhos diretos · ' + P.perdidos + ' perdidos diretos · ' + (P.fora_direto || 0) + ' fora do funil direto'
       + (P.conversao !== null && P.conversao !== undefined
-          ? '<br>conversão de ' + P.conversao.toFixed(0) + '% sobre o que já foi decidido' : '')
+          ? '<br>' + P.conversao.toFixed(0) + '% dos desfechos diretos estão marcados como ganhos (não equivale a pedidos confirmados)' : '')
       + (P.revendas ? '<br><b style="color:var(--atencao)">' + P.revendas
       + ' clientes indiretos</b> compram por revenda' : '') + '</div>'
     + '</div>'
-    + acompanhar
+    + '<div class="pr-escopos" role="group" aria-label="Visão dos leads">'
+    + '<button type="button" data-pr-escopo="ativos" aria-pressed="'+(estado.prEscopo==='ativos')+'">Em andamento <span>'+P.abertos+'</span></button>'
+    + '<button type="button" data-pr-escopo="encerrados" aria-pressed="'+(estado.prEscopo==='encerrados')+'">Encerrados <span>'+(P.ganhos+P.perdidos+(P.fora_direto||0))+'</span></button></div>'
+    + (P.revendas_em_desfecho_direto ? '<div class="lead-importacao-alerta pr-revisao-legado"><span>'
+      + P.revendas_em_desfecho_direto+' cliente(s) indireto(s) estão marcados como venda direta ganha ou perdida. Confira se houve negociação direta; nenhum status foi alterado automaticamente.</span>'
+      + '<button type="button" data-pr-revisar-legado>Ver registros</button></div>' : '')
+    + (estado.prEscopo === 'ativos' ? acompanhar : '')
     + barra
     + (estado.prView === 'funil' ? '<div class="funil">' + colunas + '</div>' : lista)
     + '<div class="grade g2" style="margin-top:12px">'
@@ -2072,13 +2176,13 @@ function loteLeads(vis) {
     + '<datalist id="lp-clientes">' + nomes + '</datalist></div>'
     + '<div class="campo"><label for="lp-etapa">Alterar etapa</label>'
     + '<select id="lp-etapa" class="filtro"><option value="">Mover para…</option>'
-      + ETAPAS.map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
+      + etapasAbertas().map(function (e) { return '<option value="' + e[0] + '">' + e[1] + '</option>'; }).join('')
       + '</select></div></div>'
     + '<div class="acoes pr-lote-acoes">'
       + '<button type="button" class="pri" id="lp-rev">Marcar compra por revenda</button>'
       + '<button type="button" id="lp-norev">Desmarcar compra por revenda</button>'
       + '<button type="button" id="lp-nada">Limpar seleção</button></div>'
-    + '<p class="nota pr-lote-nota">O nome da revenda é opcional. “Desmarcar” remove apenas a informação de compra por revenda; não exclui o lead.</p></div>';
+    + '<p class="nota pr-lote-nota">O nome da revenda é opcional. “Desmarcar” remove apenas a informação de compra por revenda; não exclui o lead. Desfechos exigem motivo e revisão das pendências na ficha individual.</p></div>';
 }
 
 function prFiltrando() {
@@ -2089,18 +2193,29 @@ function rotuloEtapa(e) {
   var x = ETAPAS.filter(function (y) { return y[0] === e; })[0];
   return x ? x[1] : e;
 }
+function seletorEtapaLead(x, origem) {
+  var id='mover-'+origem+'-'+x.id;
+  return '<label class="sr-only" for="'+esc(id)+'">Alterar etapa de '+esc(x.nome)+'</label>'
+    + '<select id="'+esc(id)+'" class="lead-mover" data-stage-id="'+esc(x.id)+'" '
+    + 'aria-label="Alterar etapa de '+esc(x.nome)+'">'
+    + (etapaEncerrada(x.etapa)
+      ? '<option value="'+esc(x.etapa)+'" selected>'+esc(rotuloEtapa(x.etapa))+'</option>' : '')
+    + etapasAbertas().map(function(e){return '<option value="'+e[0]+'"'+(x.etapa===e[0]?' selected':'')+'>'+esc(e[1])+'</option>';}).join('')
+    + '<option value="encerrar">Concluir ou classificar fora…</option></select>';
+}
 function cartaoLead(x) {
-  return '<button class="lead" type="button" data-l="' + esc(x.id) + '">'
+  return '<div class="lead-item"><button class="lead" type="button" data-l="' + esc(x.id) + '">'
     + '<b>' + esc(x.nome)
     + (x.revenda ? ' <span class="selo s-ritmo">cliente indireto</span>' : '') + '</b>'
+    + (x.etapa_origem ? '<small class="lead-revisar">Revisar etapa importada: '+esc(x.etapa_origem)+'</small>' : '')
     + '<small>' + esc([x.cidade, x.uf].filter(Boolean).join(' / ') || 'sem cidade')
     + (x.segmento ? ' · ' + esc(x.segmento) : '')
     + (x.proximo ? ' · ' + esc(x.proximo) : '') + '</small>'
-    + (proximaTarefa(x.id) ? '<small class="prazo-lead">Retorno: '+dia(proximaTarefa(x.id).prazo)+'</small>' : (['ganho','perdido'].indexOf(x.etapa)<0 ? '<small class="prazo-lead">Sem próxima ação</small>' : ''))
+    + (proximaTarefa(x.id) ? '<small class="prazo-lead">Retorno: '+dia(proximaTarefa(x.id).prazo)+'</small>' : (!etapaEncerrada(x.etapa) ? '<small class="prazo-lead">Sem próxima ação</small>' : ''))
     + '<small class="lead-dono">Responsável: '+esc(nomeUsuario(donoRegistro(x.id)))+'</small>'
     + (x.revenda && x.revenda_de ? '<small>Compra de: '+esc(x.revenda_de)+'</small>' : '')
     + (x.instagram ? '<small class="insta">' + esc(perfil(x.instagram)) + '</small>' : '')
-    + '</button>';
+    + '</button>' + seletorEtapaLead(x, 'cartao') + '</div>';
 }
 
 /* A planilha traz a URL inteira com rastreador. Na tela o que importa e o
@@ -2115,6 +2230,13 @@ function perfil(url) {
 }
 
 $('pr-corpo').addEventListener('click', function (e) {
+  if (e.target.closest('[data-pr-revisar-legado]')) {
+    prFiltro={seg:'',reg:''}; estado.prEscopo='encerrados'; estado.prRevenda='sim';
+    estado.prEtapa=estado.prAcao=estado.prBusca=estado.prUf=estado.prCidade=estado.prDono='';
+    pintarProspeccao(); return;
+  }
+  var escopo=e.target.closest('[data-pr-escopo]');
+  if (escopo) { estado.prEscopo=escopo.dataset.prEscopo; estado.prEtapa=''; estado.prAcao=''; estado.prMarcados={}; pintarProspeccao(); return; }
   var cb = e.target.closest('input[data-pm]');
   if (cb) { estado.prMarcados[cb.dataset.pm] = cb.checked; pintarProspeccao(); e.stopPropagation(); return; }
   if (e.target.id === 'pr-todos') {
@@ -2145,6 +2267,7 @@ $('pr-corpo').addEventListener('click', function (e) {
     return;
   }
   if (e.target.closest('a')) return;           /* link do Instagram abre o link */
+  if (e.target.closest('[data-stage-id]')) return;
   var tr = e.target.closest('tr[data-l]');
   if (tr) { abrirFicha(tr.dataset.l, 'lead'); return; }
   var b = e.target.closest('button[data-l]');
@@ -2159,6 +2282,22 @@ $('pr-corpo').addEventListener('click', function (e) {
   if (e.target.closest('#solto-leads')) $('arq-leads').click();
 });
 $('pr-corpo').addEventListener('change', function (e) {
+  if (e.target.dataset.stageId) {
+    var lid=e.target.dataset.stageId, nova=e.target.value, anterior=LEAD_IX[lid] && LEAD_IX[lid].etapa;
+    if (!anterior || nova===anterior) return;
+    if (nova==='encerrar') {
+      abrirFicha(lid,'lead');
+      $('fl-encerramento').hidden=false;
+      $('fl-desfecho').focus();
+      return;
+    }
+    gravar('/admin/carteira/lead',{id:lid,etapa:nova},'Etapa alterada para '+rotuloEtapa(nova)+'.')
+      .then(function(j){
+        if(!j.success && e.target.isConnected)e.target.value=anterior;
+        if(j.success && etapaEncerrada(anterior)){estado.prEscopo='ativos';estado.prEtapa='';pintarProspeccao();}
+      });
+    return;
+  }
   if (e.target.id === 'pr-dono') { estado.prDono=e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-acao') { estado.prAcao=e.target.value; pintarProspeccao(); }
   else if (e.target.id === 'pr-uf') { estado.prUf = e.target.value; pintarProspeccao(); }
@@ -2300,7 +2439,11 @@ ligarUpload($('arq-leads'), 'pv-leads', '/admin/carteira/leads/previa', '/admin/
           return p[1] + ' em "' + (e ? e[1] : p[0]) + '"';
         }).join(', ') + '.' : '')
       + (j.sem_uf ? '<br>' + j.sem_uf + ' sem estado.' : '')
-      + (j.sem_telefone ? ' ' + j.sem_telefone + ' sem telefone.' : '') + '</p>'
+      + (j.sem_telefone ? ' ' + j.sem_telefone + ' sem telefone.' : '')
+      + (j.revisar_etapa && j.revisar_etapa.length
+          ? '<br><strong style="color:var(--atencao)">Revisar etapa:</strong> '
+            + j.revisar_etapa.map(function(p){return p[1]+' registro(s) com “'+esc(p[0])+'”';}).join(', ')
+            + '. Entrarão em “A qualificar”; nenhuma venda direta será presumida.' : '') + '</p>'
       + '<div class="acoes" style="margin-top:9px">'
       + (j.novos ? '<button class="pri" type="button" data-conf="1">Gravar os ' + j.novos + ' leads novos</button>'
           : '<span class="nota" style="margin:0">Nada novo para gravar.</span>') + '</div></div>';
