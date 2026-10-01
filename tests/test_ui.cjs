@@ -21,6 +21,11 @@ function boot(){
   if(url.endsWith('/pedidos'))return {json:async()=>({success:true,pedidos:[{data:'2026-09-20',valor:300,registros:2,valores:[100,200]},{data:'2026-08-01',valor:50,registros:1,valores:[50]}]})};
   if(url==='/admin/carteira/dados')return {json:async()=>structuredClone(data)};
   if(url==='/admin/carteira/contato')data.inter.unshift({id:'new',cliente:body.cliente_id,resumo:body.resumo,resultado:body.resultado,data:data.hoje,tipo:'contato'});
+  if(url==='/admin/carteira/lead'){
+   const lead=data.prospec.leads.find(l=>l.id===body.id);
+   if(lead){Object.assign(lead,body);if(body.confirmar_etapa||body.etapa)lead.etapa_origem='';if(body.resolver_pendencias){lead.proximo='';lead.proximo_em='';}}
+   if(body.resolver_pendencias==='cancelar')data.tarefas.filter(t=>t.cliente===body.id&&!t.feita).forEach(t=>t.cancelada=true);
+  }
   if(url==='/admin/carteira/ficha'){Object.assign(data.dados.clientes.find(c=>c.id===body.cliente_id),body);}
   if(url.startsWith('/admin/carteira/tarefa/')){Object.assign(data.tarefas.find(t=>t.id===url.split('/').at(-1)),{feita:body.feita,concluido_em:body.feita?data.hoje:''});}
   return {json:async()=>({success:true})};
@@ -110,6 +115,44 @@ async function test(name,fn){let c=boot();try{await fn(c);await settle();assert.
   assert.ok(c.doc.getElementById('fl-revenda'));assert.ok(c.doc.getElementById('fl-revde'));
   assert.equal(c.doc.getElementById('fl-cliente'),null);
   assert.ok(c.doc.querySelector('[data-a="lead-remover"]'));
+ });
+ await test('Funnel shows only open stages and moves a lead without opening its full cadastro',async c=>{
+  assert.equal(c.doc.querySelectorAll('#pr-corpo .funil .col').length,4);
+  c.api.abrirFicha('lead-exemplo','lead');
+  assert.ok(c.doc.querySelector('.lead-fluxo #fl-etapa-rapida'));
+  assert.equal(c.doc.querySelector('.cadastro-detalhes').open,false);
+  const sel=c.doc.getElementById('fl-etapa-rapida');sel.value='tentando';
+  sel.dispatchEvent(new c.w.Event('change',{bubbles:true}));await settle();
+  const change=c.calls.find(x=>x.url==='/admin/carteira/lead'&&x.body.etapa==='tentando');
+  assert.deepEqual(change.body,{id:'lead-exemplo',etapa:'tentando'});
+ });
+ await test('Ambiguous imported lead stays in review until its stage is confirmed',async c=>{
+  assert.match(c.doc.querySelector('[data-l="lead-sem-acao"]').textContent,/Revisar etapa importada/);
+  c.api.abrirFicha('lead-sem-acao','lead');
+  assert.match(c.doc.querySelector('.lead-importacao-alerta').textContent,/Cliente/);
+  c.doc.querySelector('[data-a="lead-confirmar-etapa"]').click();await settle();
+  assert.ok(c.calls.some(x=>x.url==='/admin/carteira/lead'&&x.body.confirmar_etapa));
+  assert.equal(c.doc.querySelector('.lead-importacao-alerta'),null);
+ });
+ await test('Indirect lead closure requires a reason and explicit pending-task decision',async c=>{
+  c.data.tarefas.push({id:'lead-pending',cliente:'lead-exemplo',titulo:'Retorno de demonstração',prazo:c.data.hoje,feita:false});
+  c.api.abrirFicha('lead-exemplo','lead');
+  c.doc.querySelector('[data-a="lead-encerrar-abrir"]').click();
+  c.doc.getElementById('fl-desfecho').value='fora_direto';
+  c.doc.querySelector('[data-a="lead-encerrar"]').click();
+  assert.ok(!c.calls.some(x=>x.url==='/admin/carteira/lead'));
+  fill(c,'fl-motivo','Compra por revenda');
+  c.doc.querySelector('[data-a="lead-encerrar"]').click();
+  assert.ok(!c.calls.some(x=>x.url==='/admin/carteira/lead'));
+  c.doc.getElementById('fl-pendencias').value='cancelar';
+  c.doc.querySelector('[data-a="lead-encerrar"]').click();await settle();
+  const call=c.calls.find(x=>x.url==='/admin/carteira/lead');
+  assert.equal(call.body.etapa,'fora_direto');
+  assert.equal(call.body.resolver_pendencias,'cancelar');
+  assert.match(c.doc.getElementById('tela').textContent,/Histórico de tarefas/);
+  assert.equal(c.doc.querySelectorAll('#pr-corpo .funil .col').length,4);
+  c.doc.querySelector('[data-pr-escopo="encerrados"]').click();
+  assert.equal(c.doc.querySelectorAll('#pr-corpo .funil .col').length,3);
  });
  await test('Lead deletion requires confirmation and closes the drawer',async c=>{
   c.api.abrirFicha('lead-exemplo','lead');

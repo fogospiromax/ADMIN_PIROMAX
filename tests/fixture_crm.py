@@ -30,7 +30,7 @@ leads = [dict(id='lead-exemplo', nome='LEAD DEMONSTRAÇÃO', cidade='Cidade fict
               proximo='Conferir interesse na proposta', proximo_em='2026-09-23',
               motivo='', obs='', cliente_id='', responsavel_usuario='fernando'),
          dict(id='lead-sem-acao', nome='LEAD SEM AÇÃO', cidade='Cidade fictícia', uf='SP',
-              contato='', telefone='', instagram='', segmento='', etapa='novo',
+              contato='', telefone='', instagram='', segmento='', etapa='novo', etapa_origem='Cliente',
               proximo='', proximo_em='', motivo='', obs='', cliente_id='', responsavel_usuario='tiago')]
 dados = carteira.calcular(linhas, {}, fichas, {ids[0]: date(2026, 8, 1)}, hoje,
                           carteira.retornos_pendentes(tarefas))

@@ -45,9 +45,10 @@ class Connection:
             resumo TEXT, resultado TEXT DEFAULT '', responsavel TEXT DEFAULT '',
             usuario_id TEXT DEFAULT '', criado_em TEXT);
           CREATE TABLE carteira_tarefa(id TEXT PRIMARY KEY, cliente_id TEXT, titulo TEXT, prazo TEXT,
-            feita BOOL DEFAULT 0, responsavel TEXT DEFAULT '', concluido_em TEXT, criado_em TEXT);
+            feita BOOL DEFAULT 0, cancelada BOOL DEFAULT 0, cancelada_em TEXT,
+            cancelada_por TEXT DEFAULT '', responsavel TEXT DEFAULT '', concluido_em TEXT, criado_em TEXT);
           CREATE TABLE carteira_lead(id TEXT PRIMARY KEY, nome TEXT, proximo TEXT, proximo_em TEXT,
-            etapa TEXT, cliente_id TEXT, atualizado_em TEXT, contato TEXT, telefone TEXT, cidade TEXT,
+            etapa TEXT, etapa_origem TEXT DEFAULT '', cliente_id TEXT, atualizado_em TEXT, contato TEXT, telefone TEXT, cidade TEXT,
             uf TEXT, email TEXT, motivo TEXT, obs TEXT, segmento TEXT, instagram TEXT,
             revenda BOOL, revenda_de TEXT, responsavel_usuario TEXT DEFAULT '');
           CREATE TABLE carteira_vendas(data TEXT, cliente TEXT, valor REAL);
@@ -69,6 +70,23 @@ class Connection:
 
 
 class RotinaTests(unittest.TestCase):
+    def test_lead_funnel_separates_outreach_indirect_and_direct_outcomes(self):
+        leads = [dict(id='a', nome='LEAD A', etapa='qualificado'),
+                 dict(id='b', nome='LEAD B', etapa='tentando'),
+                 dict(id='c', nome='LEAD C', etapa='fora_direto', revenda=True),
+                 dict(id='d', nome='LEAD D', etapa='ganho'),
+                 dict(id='e', nome='LEAD E', etapa='perdido')]
+        p = carteira.analisar_leads(leads)
+        self.assertEqual((p['abertos'], p['fora_direto'], p['ganhos'], p['perdidos']), (2, 1, 1, 1))
+        self.assertEqual(p['conversao'], 50)
+        self.assertEqual(carteira.normalizar_etapa('Tentando contato'), 'tentando')
+        self.assertEqual(carteira.normalizar_etapa('fora_direto'), 'fora_direto')
+        self.assertEqual(carteira.normalizar_etapa('Cliente'), 'novo')
+        self.assertTrue(carteira.etapa_importada_para_revisao('Cliente'))
+        parsed, errors = carteira.ler_csv_leads('Nome;Etapa\nEMPRESA FICTÍCIA;Cliente\n')
+        self.assertEqual(errors, [])
+        self.assertEqual((parsed[0]['etapa'],parsed[0]['etapa_origem']),('novo','Cliente'))
+
     def test_sem_registro_nao_tem_atraso_infinito(self):
         c = {'classe': 'A'}
         carteira._rotina(c, {}, None, date.fromisoformat(TODAY))
@@ -275,6 +293,55 @@ class EndpointTests(unittest.TestCase):
         self.assertFalse(self.rows('carteira_lead')[0]['cliente_id'])
         self.assertEqual(self.rows('carteira_lead')[0]['revenda_de'],'REVENDA EXEMPLO')
         self.assertEqual(len(self.rows('carteira_vendas')),1)
+
+    def test_closing_indirect_lead_requires_reason_and_resolves_pending_tasks(self):
+        self.conn.db.execute("INSERT INTO carteira_lead(id,etapa,proximo,proximo_em,revenda) VALUES ('l','tentando','Retornar',?,1)", (TODAY,))
+        self.conn.db.execute("INSERT INTO carteira_tarefa(id,cliente_id,titulo,feita) VALUES ('t','l','Enviar informação',0)")
+        self.conn.commit()
+        self.assertEqual(self.call('admin_lead_salvar',dict(id='l',etapa='fora_direto'))[1],400)
+        self.assertEqual(self.call('admin_lead_salvar',dict(id='l',etapa='fora_direto',motivo='Atendido por revenda'))[1],409)
+        result=self.call('admin_lead_salvar',dict(id='l',etapa='fora_direto',motivo='Atendido por revenda',resolver_pendencias='cancelar'))
+        self.assertTrue(result['success'])
+        lead=self.rows('carteira_lead')[0]
+        self.assertEqual((lead['etapa'],lead['proximo'],lead['proximo_em']),('fora_direto','',None))
+        task=self.rows('carteira_tarefa')[0]
+        self.assertEqual((task['cancelada'],task['cancelada_por']), (1,'Fernando'))
+        self.assertEqual(carteira.retornos_pendentes([dict(cliente='l',prazo=TODAY,feita=False,cancelada=True)]),{})
+
+    def test_closing_lead_can_keep_return_as_a_real_task(self):
+        self.conn.db.execute("INSERT INTO carteira_lead(id,etapa,proximo,proximo_em) VALUES ('l','contato','Ligar',?)",(TODAY,))
+        self.conn.commit()
+        result=self.call('admin_lead_salvar',dict(id='l',etapa='ganho',resolver_pendencias='manter'))
+        self.assertTrue(result['success'])
+        self.assertEqual(self.rows('carteira_lead')[0]['proximo'],'')
+        task=self.rows('carteira_tarefa')[0]
+        self.assertEqual((task['titulo'],task['prazo'],task['cancelada']),('Ligar',TODAY,0))
+
+    def test_contact_can_change_lead_to_attempting_in_one_transaction(self):
+        self.conn.db.execute("INSERT INTO carteira_lead(id,etapa) VALUES ('l','qualificado')")
+        self.conn.commit()
+        result=self.call('admin_carteira_contato',dict(cliente_id='l',resumo='Tentativa de exemplo',
+            resultado='sem_resposta',proximo='Tentar novamente',proximo_em='2026-09-24',etapa='tentando'))
+        self.assertTrue(result['success'])
+        self.assertEqual(self.rows('carteira_lead')[0]['etapa'],'tentando')
+        self.assertEqual(self.rows('carteira_interacao')[0]['resultado'],'sem_resposta')
+
+    def test_closed_indirect_lead_followup_remains_visible_as_task(self):
+        self.conn.db.execute("INSERT INTO carteira_lead(id,etapa,revenda) VALUES ('l','fora_direto',1)")
+        self.conn.commit()
+        result=self.call('admin_carteira_contato',dict(cliente_id='l',resumo='Apoio à revenda',
+            resultado='retorno',proximo='Retornar sobre material',proximo_em='2026-09-25'))
+        self.assertTrue(result['success'])
+        self.assertEqual(self.rows('carteira_lead')[0]['proximo'],'')
+        task=self.rows('carteira_tarefa')[0]
+        self.assertEqual((task['titulo'],task['prazo'],task['cancelada']),('Retornar sobre material','2026-09-25',0))
+
+    def test_imported_ambiguous_stage_can_be_confirmed_without_changing_stage(self):
+        self.conn.db.execute("INSERT INTO carteira_lead(id,etapa,etapa_origem) VALUES ('l','novo','Cliente')")
+        self.conn.commit()
+        result=self.call('admin_lead_salvar',dict(id='l',etapa='novo',confirmar_etapa=True))
+        self.assertTrue(result['success'])
+        self.assertEqual(self.rows('carteira_lead')[0]['etapa_origem'],'')
 
     def test_deleting_lead_removes_only_its_contacts_and_tasks(self):
         self.conn.db.execute("INSERT INTO carteira_lead(id,nome) VALUES ('lead-test','LEAD TESTE')")
