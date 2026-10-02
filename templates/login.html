@@ -48,7 +48,7 @@ input[type="text"], input[type="password"] {
   transition: border-color 0.2s; margin-bottom: 16px; font-family: inherit;
 }
 input[type="text"]:focus, input[type="password"]:focus {
-  border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.08);
+  border-color: #7c3aed;
 }
 .error-msg {
   background: #fff5f5; border: 1px solid #fca5a5; color: #dc2626;
@@ -63,20 +63,25 @@ button[type="submit"] {
 }
 button[type="submit"]:hover { background: #6d28d9; }
 .worker-hint {
-  margin-top: 20px; font-size: 0.8rem; color: #9ca3af;
+  margin-top: 20px; font-size: 0.8rem; color: #637083;
 }
 .worker-hint a {
   color: #7c3aed; text-decoration: none; font-weight: 600;
 }
 .worker-hint a:hover { text-decoration: underline; }
+@media (max-width:600px) {
+  body { padding: 16px; }
+  .login-card { padding: 32px 24px; }
+}
 </style>
+<link rel="stylesheet" href="/static/design-system.css?v=8">
 </head>
 <body>
 <div class="login-card">
   <div class="login-logo">
     <img src="/static/logo.png" alt="Piromax Fogos">
   </div>
-  <div class="login-title">Fogos Piromax</div>
+  <h1 class="login-title">Fogos Piromax</h1>
   <div class="login-badge">Área restrita · Equipe Piromax</div>
 
   {% if error %}

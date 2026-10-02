@@ -34,10 +34,10 @@
   }
   .header-logo img { width: 100%; height: 100%; object-fit: contain; }
   .header-brand-text .title { font-size: 0.98rem; font-weight: 700; color: #1e1b4b; }
-  .header-brand-text .sub { font-size: 0.7rem; color: #9ca3af; }
+  .header-brand-text .sub { font-size: 0.7rem; color: #637083; }
   .header-right { display: flex; align-items: center; gap: 8px; }
   .worker-badge {
-    background: #f0fdf4; color: #16a34a; border: 1.5px solid #bbf7d0;
+    background: #f0fdf4; color: #166b4a; border: 1.5px solid #bbf7d0;
     border-radius: 8px; padding: 5px 10px; font-size: 0.72rem; font-weight: 800;
     letter-spacing: 0.5px; white-space: nowrap;
   }
@@ -45,7 +45,7 @@
   .btn-print:hover { background:#f3f0ff; }
   /* ── Footer ── */
   .app-footer {
-    text-align: center; padding: 24px 20px 40px; font-size: 0.78rem; color: #9ca3af;
+    text-align: center; padding: 24px 20px 40px; font-size: 0.78rem; color: #637083;
     border-top: 1px solid #ede9fe; margin-top: 20px;
   }
   .app-footer a { color: #7c3aed; text-decoration: none; font-weight: 600; }
@@ -56,12 +56,12 @@
   .week-nav-btn:hover { background:#f3f0ff; }
   .week-label { text-align:center; }
   .week-label-main { font-size:16px; font-weight:700; color:#1f1235; }
-  .week-label-sub { font-size:12px; color:#9ca3af; margin-top:2px; }
+  .week-label-sub { font-size:12px; color:#637083; margin-top:2px; }
   .emp-card { background:#fff; border-radius:14px; padding:16px 18px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
   .emp-header { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
   .avatar { width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; color:#fff; flex-shrink:0; }
   .emp-name { font-size:15px; font-weight:700; color:#1f1235; }
-  .emp-role { font-size:12px; color:#9ca3af; }
+  .emp-role { font-size:12px; color:#637083; }
   .day-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #f3f4f6; }
   .day-row:last-child { border-bottom:none; }
   .day-label { width:106px; flex-shrink:0; }
@@ -70,13 +70,13 @@
   .day-row.monday .day-dot { display:block; }
   .day-name { font-size:13px; font-weight:600; color:#374151; }
   .day-row.monday .day-name { color:#7c3aed; }
-  .day-date { font-size:11px; color:#9ca3af; }
+  .day-date { font-size:11px; color:#637083; }
   .day-row.monday .day-date { color:#a78bfa; }
   .day-product { flex:1; font-size:13px; }
   .day-product.filled { font-weight:600; color:#1f1235; background:#f3f0ff; border-radius:8px; padding:6px 11px; border-left:3px solid #7c3aed; }
   .day-product.empty { color:#d8b4fe; font-style:italic; padding:6px 11px; }
-  .loading { text-align:center; color:#9ca3af; padding:40px 0; font-size:14px; }
-  .empty-week { text-align:center; color:#9ca3af; padding:40px 0; font-size:14px; }
+  .loading { text-align:center; color:#637083; padding:40px 0; font-size:14px; }
+  .empty-week { text-align:center; color:#637083; padding:40px 0; font-size:14px; }
   /* ── Print header (hidden on screen) ── */
   .print-header { display:none; margin-bottom:16px; padding-bottom:10px; border-bottom:2.5px solid #7c3aed; }
   .print-header-top { display:flex; justify-content:space-between; align-items:flex-end; }
@@ -84,15 +84,15 @@
   .print-header-left .ph-subtitle { font-size:9px; font-weight:700; color:#7c3aed; text-transform:uppercase; letter-spacing:0.6px; margin-top:3px; }
   .print-header-right { text-align:right; }
   .print-header-right .ph-week { font-size:13px; font-weight:700; color:#374151; }
-  .print-header-right .ph-date { font-size:8px; color:#9ca3af; margin-top:2px; }
+  .print-header-right .ph-date { font-size:8px; color:#637083; margin-top:2px; }
 
   /* ── @page ── */
   @page {
     size: A4 portrait;
     margin: 14mm 18mm 12mm;
   }
-  @page { @bottom-left { content: "Fogos Piromax — Programação de Produção"; font-size: 7pt; color: #9ca3af; font-family: sans-serif; } }
-  @page { @bottom-right { content: "Página " counter(page); font-size: 7pt; color: #9ca3af; font-family: sans-serif; } }
+  @page { @bottom-left { content: "Fogos Piromax — Programação de Produção"; font-size: 7pt; color: #637083; font-family: sans-serif; } }
+  @page { @bottom-right { content: "Página " counter(page); font-size: 7pt; color: #637083; font-family: sans-serif; } }
 
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -134,12 +134,13 @@
     .empty-week { display:none !important; }
   }
 </style>
+<link rel="stylesheet" href="/static/design-system.css?v=8">
 </head>
 <body>
 
-<header>
+<header class="operational-header">
   <div class="header-left">
-    <a href="/" class="back-btn">←</a>
+    <a href="/" class="back-btn" aria-label="Voltar ao painel">←</a>
     <div class="header-logo">
       <img src="/static/logo.png" alt="Piromax">
     </div>
@@ -155,6 +156,7 @@
 </header>
 
 <div class="page">
+  <h1 class="screen-title">Programação semanal</h1>
   <div class="print-header">
     <div class="print-header-top">
       <div class="print-header-left">
@@ -169,12 +171,12 @@
   </div>
 
   <div class="week-nav">
-    <button class="week-nav-btn" onclick="changeWeek(-1)">‹</button>
+    <button class="week-nav-btn" onclick="changeWeek(-1)" aria-label="Semana anterior">‹</button>
     <div class="week-label">
       <div class="week-label-main" id="week-range">—</div>
       <div class="week-label-sub" id="week-year">carregando…</div>
     </div>
-    <button class="week-nav-btn" onclick="changeWeek(1)">›</button>
+    <button class="week-nav-btn" onclick="changeWeek(1)" aria-label="Próxima semana">›</button>
   </div>
 
   <div id="emp-list"><div class="loading">Carregando programação…</div></div>
@@ -263,12 +265,14 @@ function renderList(employees) {
     card.className = 'emp-card';
     card.innerHTML = `
       <div class="emp-header">
-        <div class="avatar" style="background:${grad}">${initials}</div>
+        <div class="avatar" style="background:${grad}"></div>
         <div>
-          <div class="emp-name">${emp.name}</div>
+          <div class="emp-name"></div>
           <div class="emp-role">Produção</div>
         </div>
       </div>`;
+    card.querySelector('.avatar').textContent = initials;
+    card.querySelector('.emp-name').textContent = emp.name;
 
     DAY_KEYS.forEach((key, di) => {
       const date = addDays(weekStart, di);
@@ -280,7 +284,8 @@ function renderList(employees) {
           <div class="day-name-wrap"><div class="day-dot"></div><span class="day-name">${DAYS[di]}</span></div>
           <span class="day-date">${fmt(date)}</span>
         </div>
-        <div class="day-product ${product?'filled':'empty'}">${product||'sem programação'}</div>`;
+        <div class="day-product ${product?'filled':'empty'}"></div>`;
+      row.querySelector('.day-product').textContent = product || 'sem programação';
       card.appendChild(row);
     });
     list.appendChild(card);

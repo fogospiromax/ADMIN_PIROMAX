@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Piromax">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#16a34a">
+<meta name="theme-color" content="#7c3aed">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8f7ff; color: #2d3748; min-height: 100vh; }
@@ -25,7 +25,7 @@ header {
 .back-btn {
   width: 34px; height: 34px; background: #f0fdf4; border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
-  color: #16a34a; font-size: 1.1rem; cursor: pointer;
+  color: #166b4a; font-size: 1.1rem; cursor: pointer;
   border: 1.5px solid #bbf7d0; font-family: inherit;
   flex-shrink: 0; text-decoration: none; font-weight: 700; line-height: 1;
 }
@@ -55,7 +55,7 @@ header {
   margin-bottom: 20px;
 }
 .add-card-title {
-  font-size: 0.75rem; font-weight: 800; color: #16a34a;
+  font-size: 0.75rem; font-weight: 800; color: #166b4a;
   text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 14px;
 }
 .tipo-grid {
@@ -67,9 +67,9 @@ header {
   cursor: pointer; font-family: inherit; text-align: center; transition: all 0.15s;
   line-height: 1.35;
 }
-.tipo-btn:hover { border-color: #86efac; color: #16a34a; }
+.tipo-btn:hover { border-color: #86efac; color: #166b4a; }
 .tipo-btn.active.melhoria    { background: #eff6ff; border-color: #93c5fd; color: #2563eb; }
-.tipo-btn.active.recl-cliente { background: #fff7ed; border-color: #fdba74; color: #ea580c; }
+.tipo-btn.active.recl-cliente { background: #fff7ed; border-color: #fdba74; color: #9a3412; }
 .tipo-btn.active.recl-func   { background: #fee2e2; border-color: #fca5a5; color: #dc2626; }
 
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
@@ -79,16 +79,16 @@ header {
   padding: 9px 12px; font-size: 0.88rem; font-family: inherit;
   color: #1e1b4b; outline: none; transition: border-color 0.2s;
 }
-.form-input:focus { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.08); }
+.form-input:focus { border-color: #166b4a; box-shadow: 0 0 0 3px rgba(22,163,74,0.08); }
 .form-textarea {
   width: 100%; border: 1.5px solid #e5e7eb; border-radius: 9px;
   padding: 10px 13px; font-size: 0.9rem; font-family: inherit;
   color: #1e1b4b; resize: vertical; min-height: 76px; outline: none;
   transition: border-color 0.2s; margin-bottom: 12px;
 }
-.form-textarea:focus { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.08); }
+.form-textarea:focus { border-color: #166b4a; box-shadow: 0 0 0 3px rgba(22,163,74,0.08); }
 .btn-submit {
-  width: 100%; padding: 10px 20px; background: #16a34a; color: white; border: none;
+  width: 100%; padding: 10px 20px; background: #166b4a; color: white; border: none;
   border-radius: 9px; font-size: 0.9rem; font-weight: 700;
   cursor: pointer; font-family: inherit; transition: background 0.15s;
 }
@@ -102,17 +102,17 @@ header {
 }
 .tab-btn {
   flex: 1; padding: 11px 16px; font-size: 0.88rem; font-weight: 700;
-  background: none; border: none; cursor: pointer; color: #9ca3af;
+  background: none; border: none; cursor: pointer; color: #637083;
   transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px;
   font-family: inherit;
 }
-.tab-btn.active { background: #16a34a; color: white; }
-.tab-btn:not(.active):hover { background: #f0fdf4; color: #16a34a; }
+.tab-btn.active { background: #166b4a; color: white; }
+.tab-btn:not(.active):hover { background: #f0fdf4; color: #166b4a; }
 .tab-count {
   background: rgba(255,255,255,0.25); border-radius: 20px;
   padding: 1px 7px; font-size: 0.72rem; font-weight: 800;
 }
-.tab-btn:not(.active) .tab-count { background: #dcfce7; color: #16a34a; }
+.tab-btn:not(.active) .tab-count { background: #dcfce7; color: #166b4a; }
 
 /* ── Separadores de seção ── */
 .section-sep {
@@ -145,14 +145,14 @@ header {
   border-radius: 7px; padding: 3px 10px; font-size: 0.72rem; font-weight: 700; white-space: nowrap;
 }
 .tipo-badge.melhoria    { background: #eff6ff; color: #2563eb; }
-.tipo-badge.recl-cliente { background: #fff7ed; color: #ea580c; }
+.tipo-badge.recl-cliente { background: #fff7ed; color: #9a3412; }
 .tipo-badge.recl-func   { background: #fee2e2; color: #dc2626; }
 .badge-concluida {
-  background: #dcfce7; color: #16a34a; border-radius: 6px;
+  background: #dcfce7; color: #166b4a; border-radius: 6px;
   padding: 3px 8px; font-size: 0.68rem; font-weight: 700;
 }
 .req-responsavel {
-  margin-left: auto; font-size: 0.72rem; color: #9ca3af; font-weight: 500;
+  margin-left: auto; font-size: 0.72rem; color: #637083; font-weight: 500;
   white-space: nowrap;
 }
 
@@ -160,7 +160,7 @@ header {
   font-size: 0.9rem; color: #1e1b4b; font-weight: 600;
   line-height: 1.5; margin-bottom: 5px;
 }
-.req-meta { font-size: 0.74rem; color: #9ca3af; }
+.req-meta { font-size: 0.74rem; color: #637083; }
 
 /* ── Comentários ── */
 .comentarios-section {
@@ -168,7 +168,7 @@ header {
   background: #fafaf9;
 }
 .comentarios-title {
-  font-size: 0.68rem; font-weight: 800; color: #9ca3af;
+  font-size: 0.68rem; font-weight: 800; color: #637083;
   text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px;
   cursor: pointer; display: flex; align-items: center; gap: 5px;
 }
@@ -182,11 +182,11 @@ header {
   border-color: #bbf7d0; background: #f0fdf4; color: #166534;
 }
 .comentario-meta {
-  font-size: 0.7rem; color: #9ca3af; margin-top: 4px;
+  font-size: 0.7rem; color: #637083; margin-top: 4px;
 }
 .comentario-label {
   font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
-  color: #16a34a; letter-spacing: 0.3px;
+  color: #166b4a; letter-spacing: 0.3px;
 }
 
 /* ── Novo comentário inline ── */
@@ -199,9 +199,9 @@ header {
   color: #1e1b4b; resize: none; height: 60px; outline: none;
   transition: border-color 0.2s;
 }
-.novo-comentario textarea:focus { border-color: #16a34a; }
+.novo-comentario textarea:focus { border-color: #166b4a; }
 .btn-enviar-comentario {
-  padding: 0 14px; background: #16a34a; color: white; border: none;
+  padding: 0 14px; background: #166b4a; color: white; border: none;
   border-radius: 8px; font-size: 0.8rem; font-weight: 700;
   cursor: pointer; font-family: inherit; flex-shrink: 0; transition: background 0.15s;
 }
@@ -215,13 +215,13 @@ header {
 .req-actions-btns { display: flex; gap: 7px; }
 
 .btn-concluir {
-  flex: 1; padding: 8px 12px; background: #16a34a; color: white;
+  flex: 1; padding: 8px 12px; background: #166b4a; color: white;
   border: none; border-radius: 8px; font-size: 0.82rem; font-weight: 700;
   cursor: pointer; font-family: inherit; transition: background 0.15s;
 }
 .btn-concluir:hover { background: #15803d; }
 .btn-comentar {
-  padding: 8px 12px; background: #f0fdf4; color: #16a34a;
+  padding: 8px 12px; background: #f0fdf4; color: #166b4a;
   border: 1.5px solid #bbf7d0; border-radius: 8px; font-size: 0.82rem; font-weight: 700;
   cursor: pointer; font-family: inherit; transition: all 0.15s;
 }
@@ -240,7 +240,7 @@ header {
 }
 .concluir-form.open { display: flex; }
 .concluir-form-title {
-  font-size: 0.72rem; font-weight: 800; color: #16a34a;
+  font-size: 0.72rem; font-weight: 800; color: #166b4a;
   text-transform: uppercase; letter-spacing: 0.3px;
 }
 .concluir-form textarea {
@@ -249,7 +249,7 @@ header {
   color: #1e1b4b; resize: vertical; min-height: 66px; outline: none;
   transition: border-color 0.2s;
 }
-.concluir-form textarea:focus { border-color: #16a34a; }
+.concluir-form textarea:focus { border-color: #166b4a; }
 .concluir-form-footer { display: flex; gap: 8px; justify-content: flex-end; }
 .btn-cancelar {
   padding: 8px 14px; background: white; color: #6b7280;
@@ -258,14 +258,14 @@ header {
 }
 .btn-cancelar:hover { background: #f9fafb; }
 .btn-confirmar-conclusao {
-  padding: 8px 18px; background: #16a34a; color: white; border: none;
+  padding: 8px 18px; background: #166b4a; color: white; border: none;
   border-radius: 8px; font-size: 0.82rem; font-weight: 700;
   cursor: pointer; font-family: inherit; transition: background 0.15s;
 }
 .btn-confirmar-conclusao:hover { background: #15803d; }
 
 /* ── Empty ── */
-.empty-state { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 0.92rem; }
+.empty-state { text-align: center; padding: 40px 20px; color: #637083; font-size: 0.92rem; }
 .empty-state .empty-icon { font-size: 2.2rem; margin-bottom: 10px; }
 
 /* ── Toast ── */
@@ -279,10 +279,10 @@ header {
 
 /* ── Footer ── */
 .app-footer {
-  text-align: center; padding: 24px 20px 40px; font-size: 0.78rem; color: #9ca3af;
+  text-align: center; padding: 24px 20px 40px; font-size: 0.78rem; color: #637083;
   border-top: 1px solid #bbf7d0; margin-top: 32px;
 }
-.app-footer a { color: #16a34a; text-decoration: none; font-weight: 600; }
+.app-footer a { color: #166b4a; text-decoration: none; font-weight: 600; }
 .app-footer a:hover { text-decoration: underline; }
 
 @media (max-width: 480px) {
@@ -290,12 +290,13 @@ header {
   .form-row  { grid-template-columns: 1fr; }
 }
 </style>
+<link rel="stylesheet" href="/static/design-system.css?v=8">
 </head>
 <body>
 
-<header>
+<header class="operational-header">
   <div class="header-left">
-    <a href="/admin" class="back-btn" title="Voltar ao Hub do Gestor">‹</a>
+    <a href="/admin" class="back-btn" title="Voltar ao Hub do Gestor" aria-label="Voltar ao painel">‹</a>
     <div class="header-logo">
       <img src="/static/logo.png" alt="Piromax">
     </div>
@@ -310,6 +311,7 @@ header {
 </header>
 
 <div class="container">
+  <h1 class="screen-title">Melhorias e reclamações</h1>
 
   <!-- Formulário novo registro -->
   <div class="add-card">
@@ -399,7 +401,7 @@ header {
           <div class="req-actions-btns">
             <button class="btn-concluir" onclick="toggleConcluir('{{ r.id }}')">✅ Concluir</button>
             <button class="btn-comentar" onclick="toggleComentarios('{{ r.id }}')">💬 Comentar</button>
-            <button class="btn-excluir"  onclick="excluirItem('{{ r.id }}')">🗑</button>
+            <button class="btn-excluir" aria-label="Excluir registro" onclick="excluirItem('{{ r.id }}')">🗑</button>
           </div>
         </div>
 
@@ -446,7 +448,7 @@ header {
           <div class="req-actions-btns">
             <button class="btn-concluir" onclick="toggleConcluir('{{ r.id }}')">✅ Concluir</button>
             <button class="btn-comentar" onclick="toggleComentarios('{{ r.id }}')">💬 Comentar</button>
-            <button class="btn-excluir"  onclick="excluirItem('{{ r.id }}')">🗑</button>
+            <button class="btn-excluir" aria-label="Excluir registro" onclick="excluirItem('{{ r.id }}')">🗑</button>
           </div>
         </div>
         <div class="concluir-form" id="concluir-form-{{ r.id }}">
@@ -491,7 +493,7 @@ header {
           <div class="req-actions-btns">
             <button class="btn-concluir" onclick="toggleConcluir('{{ r.id }}')">✅ Concluir</button>
             <button class="btn-comentar" onclick="toggleComentarios('{{ r.id }}')">💬 Comentar</button>
-            <button class="btn-excluir"  onclick="excluirItem('{{ r.id }}')">🗑</button>
+            <button class="btn-excluir" aria-label="Excluir registro" onclick="excluirItem('{{ r.id }}')">🗑</button>
           </div>
         </div>
         <div class="concluir-form" id="concluir-form-{{ r.id }}">
@@ -576,7 +578,7 @@ header {
   <a href="/admin">← Voltar ao Painel do Gestor</a>
 </footer>
 
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 let tipoSelecionado = 'melhoria';

@@ -14,7 +14,7 @@
 :root{
   --roxo:#7c3aed; --roxo-claro:#f5f3ff; --roxo-borda:#ede9fe; --roxo-forte:#1e1b4b;
   --fundo:#f8f7ff; --branco:#fff; --linha:#ede9fe; --linha2:#f3f0fd;
-  --texto:#2d3748; --texto2:#6b7280; --texto3:#9ca3af;
+  --texto:#2d3748; --texto2:#6b7280; --texto3:#637083;
   /* series dos tres anos: slots categoricos validados para daltonismo */
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
   --o1:#86b6ef; --o2:#5598e7; --o3:#2a78d6; --o4:#256abf; --o5:#1c5cab; --o6:#184f95; --o7:#104281;
@@ -358,7 +358,8 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   nav.abas{top:69px}
 }
 </style>
-<link rel="stylesheet" href="/static/carteira-ux.css?v=18">
+<link rel="stylesheet" href="/static/carteira-ux.css?v=24">
+<link rel="stylesheet" href="/static/design-system.css?v=8">
 </head>
 <body data-usuario="{{ usuario_id }}">
 
@@ -415,20 +416,21 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
       <span class="mono" id="r-cnt" style="color:var(--texto3);font-size:.76rem"></span>
     </div>
     <div id="r-lote" hidden style="margin-bottom:11px"></div>
-    <div class="tw"><table id="r-tab"><thead><tr>
+    <p class="nota r-scroll-hint" id="r-scroll-hint" hidden>Há mais colunas à direita. Role a tabela horizontalmente para vê-las.</p>
+    <div class="tw" role="region" aria-label="Tabela de clientes com rolagem horizontal" tabindex="0"><table id="r-tab"><thead><tr>
       <th class="marc"><input type="checkbox" id="r-todos" aria-label="Marcar todos"></th>
       <th><button type="button" data-s="nome">Cliente</button></th><th>Responsável</th>
       <th class="extra-col">Cidade / UF</th>
       <th class="extra-col">Área de atuação</th>
-      <th>Saúde comercial</th>
+      <th title="Saúde comercial">Tendência</th>
       <th class="num extra-col"><button type="button" data-s="compras">Quantidade de compras</button></th>
       <th class="num extra-col"><button type="button" data-s="var_ytd_pct">No ano vs. média</button></th>
       <th class="num extra-col"><button type="button" data-s="ticket">Pedido médio</button></th>
       <th class="num extra-col"><button type="button" data-s="ultima">Última compra</button></th>
       <th class="num extra-col"><button type="button" data-s="primeira">Cliente desde</button></th>
-      <th class="num"><button type="button" data-s="receita">Valor total comprado</button></th>
+      <th class="num"><button type="button" data-s="receita" title="Valor total comprado">Total comprado</button></th>
       <th class="num horizonte-col"><button type="button" data-s="previsao_trimestre">Estimativa 3 meses</button></th>
-      <th>Último registro / atendimento</th><th>Próxima ação</th>
+      <th class="extra-col">Último registro / atendimento</th><th>Próxima ação</th>
     </tr></thead><tbody id="r-corpo"></tbody></table></div>
     <p class="nota">Clique no cliente para abrir a ficha. Em “Mostrar detalhes”, cidade e estado podem ser editados na tabela e são salvos automaticamente.</p>
     <p class="nota">A estimativa de três meses usa o histórico do mesmo mês nos dois anos anteriores. Na ficha, o vendido no mês atual aparece separado da estimativa.</p>
@@ -489,6 +491,6 @@ var PESSOAL = JSON.parse({{ pessoal_json|tojson }});
 var ETAPAS = JSON.parse({{ etapas_json|tojson }});
 var HOJE = "{{ hoje }}";
 </script>
-<script src="/static/carteira.js?v=22"></script>
+<script src="/static/carteira.js?v=26"></script>
 </body>
 </html>

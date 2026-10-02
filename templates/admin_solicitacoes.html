@@ -37,7 +37,7 @@ header {
 .header-logo img { width: 100%; height: 100%; object-fit: contain; }
 .header-brand-text { flex: 1; }
 .header-brand-text .title { font-size: 0.98rem; font-weight: 700; color: #1e1b4b; }
-.header-brand-text .sub { font-size: 0.7rem; color: #9ca3af; }
+.header-brand-text .sub { font-size: 0.7rem; color: #637083; }
 .header-right { display: flex; align-items: center; gap: 8px; }
 .gestor-badge {
   width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
@@ -46,7 +46,7 @@ header {
 }
 .header-brand-text .sub { font-size: 0.72rem; color: #6b7280; font-weight: 500; }
 .app-footer {
-  text-align: center; padding: 24px 20px 40px; font-size: 0.78rem; color: #9ca3af;
+  text-align: center; padding: 24px 20px 40px; font-size: 0.78rem; color: #637083;
   border-top: 1px solid #ede9fe; margin-top: 32px;
 }
 .app-footer a { color: #7c3aed; text-decoration: none; font-weight: 600; }
@@ -106,7 +106,7 @@ header {
 }
 .tab-btn {
   flex: 1; padding: 11px 16px; font-size: 0.88rem; font-weight: 700;
-  background: none; border: none; cursor: pointer; color: #9ca3af;
+  background: none; border: none; cursor: pointer; color: #637083;
   transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px;
   font-family: inherit;
 }
@@ -126,7 +126,7 @@ header {
 }
 .section-sep.urgente { color: #dc2626; }
 .section-sep.urgente::after { content: ''; flex: 1; height: 1px; background: #fca5a5; }
-.section-sep.normal { color: #9ca3af; }
+.section-sep.normal { color: #637083; }
 .section-sep.normal::after { content: ''; flex: 1; height: 1px; background: #e5e7eb; }
 
 /* ── Cards ── */
@@ -147,16 +147,16 @@ header {
   border-radius: 7px; padding: 2px 9px; font-size: 0.72rem; font-weight: 700; white-space: nowrap;
   background: #f5f3ff; color: #7c3aed;
 }
-.tipo-badge.material    { background: #fff7ed; color: #ea580c; }
+.tipo-badge.material    { background: #fff7ed; color: #9a3412; }
 .tipo-badge.equipamento { background: #eff6ff; color: #2563eb; }
-.tipo-badge.manutencao  { background: #fefce8; color: #ca8a04; }
+.tipo-badge.manutencao  { background: #fefce8; color: #8d6008; }
 .tipo-badge.outro       { background: #f9fafb; color: #6b7280; }
 .badge-urgente {
   background: #fee2e2; color: #dc2626; border-radius: 6px;
   padding: 2px 7px; font-size: 0.68rem; font-weight: 800; white-space: nowrap;
 }
 .badge-concluida {
-  background: #dcfce7; color: #16a34a; border-radius: 6px;
+  background: #dcfce7; color: #166b4a; border-radius: 6px;
   padding: 2px 7px; font-size: 0.68rem; font-weight: 700;
 }
 
@@ -164,12 +164,12 @@ header {
   font-size: 0.88rem; color: #1e1b4b; font-weight: 600;
   line-height: 1.45; margin-bottom: 4px;
 }
-.req-meta { font-size: 0.74rem; color: #9ca3af; }
+.req-meta { font-size: 0.74rem; color: #637083; }
 
 .req-resposta-existente {
   margin-top: 8px; background: #f0fdf4; border-radius: 8px;
   padding: 8px 11px; font-size: 0.82rem; color: #166534;
-  border-left: 3px solid #16a34a;
+  border-left: 3px solid #166b4a;
 }
 
 /* Actions area */
@@ -230,7 +230,7 @@ header {
 .btn-cancelar-edit:hover { background: #f9fafb; }
 
 /* ── Empty ── */
-.empty-state { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 0.92rem; }
+.empty-state { text-align: center; padding: 40px 20px; color: #637083; font-size: 0.92rem; }
 .empty-state .empty-icon { font-size: 2.2rem; margin-bottom: 10px; }
 
 /* ── Toast ── */
@@ -246,12 +246,13 @@ header {
   .tipo-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
+<link rel="stylesheet" href="/static/design-system.css?v=8">
 </head>
 <body>
 
-<header>
+<header class="operational-header">
   <div class="header-left">
-    <a href="/admin" class="back-btn" title="Voltar ao Hub do Gestor">‹</a>
+    <a href="/admin" class="back-btn" title="Voltar ao Hub do Gestor" aria-label="Voltar ao painel">‹</a>
     <div class="header-logo">
       <img src="/static/logo.png" alt="Piromax">
     </div>
@@ -266,6 +267,7 @@ header {
 </header>
 
 <div class="container">
+  <h1 class="screen-title">Solicitações</h1>
 
   <!-- Formulário nova solicitação -->
   <div class="add-card">
@@ -322,8 +324,8 @@ header {
           <textarea class="resposta-input" id="resp-{{ r.id }}" placeholder="Resposta opcional..."></textarea>
           <div class="req-actions-btns">
             <button class="btn-concluir" onclick="concluirSolicitacao('{{ r.id }}')">✅ Concluir</button>
-            <button class="btn-editar"   onclick="toggleEditReq('{{ r.id }}', '{{ r.tipo }}', {{ r.descricao | tojson }}, {{ r.urgente | tojson }})">✏️</button>
-            <button class="btn-excluir"  onclick="excluirSolicitacao('{{ r.id }}', 'pendente')">🗑</button>
+            <button class="btn-editar" aria-label="Editar solicitação"   onclick="toggleEditReq('{{ r.id }}', '{{ r.tipo }}', {{ r.descricao | tojson }}, {{ r.urgente | tojson }})">✏️</button>
+            <button class="btn-excluir" aria-label="Excluir solicitação" onclick="excluirSolicitacao('{{ r.id }}', 'pendente')">🗑</button>
           </div>
         </div>
       </div>
@@ -350,8 +352,8 @@ header {
           <textarea class="resposta-input" id="resp-{{ r.id }}" placeholder="Resposta opcional..."></textarea>
           <div class="req-actions-btns">
             <button class="btn-concluir" onclick="concluirSolicitacao('{{ r.id }}')">✅ Concluir</button>
-            <button class="btn-editar"   onclick="toggleEditReq('{{ r.id }}', '{{ r.tipo }}', {{ r.descricao | tojson }}, {{ r.urgente | tojson }})">✏️</button>
-            <button class="btn-excluir"  onclick="excluirSolicitacao('{{ r.id }}', 'pendente')">🗑</button>
+            <button class="btn-editar" aria-label="Editar solicitação"   onclick="toggleEditReq('{{ r.id }}', '{{ r.tipo }}', {{ r.descricao | tojson }}, {{ r.urgente | tojson }})">✏️</button>
+            <button class="btn-excluir" aria-label="Excluir solicitação" onclick="excluirSolicitacao('{{ r.id }}', 'pendente')">🗑</button>
           </div>
         </div>
       </div>
@@ -410,7 +412,7 @@ header {
   <a href="/">← Ver área dos trabalhadores</a>
 </footer>
 
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 /* ── Nova solicitação ── */
@@ -469,8 +471,8 @@ async function adicionarSolicitacao() {
         <textarea class="resposta-input" id="resp-${r.id}" placeholder="Resposta opcional..."></textarea>
         <div class="req-actions-btns">
           <button class="btn-concluir" onclick="concluirSolicitacao('${r.id}')">✅ Concluir</button>
-          <button class="btn-editar"   onclick="toggleEditReq('${r.id}', '${r.tipo}', ${descJson}, ${urgenteJson})">✏️</button>
-          <button class="btn-excluir"  onclick="excluirSolicitacao('${r.id}', 'pendente')">🗑</button>
+          <button class="btn-editar" aria-label="Editar solicitação"   onclick="toggleEditReq('${r.id}', '${r.tipo}', ${descJson}, ${urgenteJson})">✏️</button>
+          <button class="btn-excluir" aria-label="Excluir solicitação" onclick="excluirSolicitacao('${r.id}', 'pendente')">🗑</button>
         </div>
       </div>`;
 
