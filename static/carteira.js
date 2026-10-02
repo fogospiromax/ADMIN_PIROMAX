@@ -353,7 +353,7 @@ function formularioContato(id) {
     + '<div class="campo" style="margin-top:12px"><label for="fc-concluir">Concluir uma tarefa com este contato</label><select id="fc-concluir"><option value="">Não concluir tarefa</option>'+(TAREFAS||[]).filter(function(t){return t.cliente===id&&!t.feita;}).map(function(t){return '<option value="'+esc(t.id)+'">'+esc(t.titulo)+'</option>';}).join('')+'</select></div>'
     + (LEAD_IX[id] && (LEAD_IX[id].proximo || LEAD_IX[id].proximo_em) ? '<p class="nota">O retorno já combinado será registrado como concluído; informe o novo próximo passo se houver.</p>' : '')
     + '<p class="nota">Sem resposta não reinicia a cadência. Para tentativas sem resposta e retornos combinados, informe o próximo passo e a data.</p>'
-    + '<div class="acoes"><button class="pri" data-a="contato">Salvar contato e próximo passo</button><span class="nota">Ctrl / ⌘ + Enter</span></div>'
+    + '<div class="acoes contato-acoes"><button class="pri" data-a="contato">Salvar contato e próximo passo</button><span class="nota">Ctrl / ⌘ + Enter</span></div>'
     + '<details class="saiba" '+(log.length?'':'open')+'><summary>Histórico de contatos ('+log.length+')</summary><div class="hist">'
     + (log.length?log.map(function(i){return '<div class="it"><span class="d">'+dia(i.data)+'</span><span class="t"><b>'+esc(RESULTADOS[i.resultado] || (i.tipo==='tarefa'?'Retorno concluído':'Contato'))+'</b>'+ (i.responsavel?' · '+esc(i.responsavel):'')+'<br>'+esc(i.resumo)+'</span></div>';}).join(''):'<p class="nota">Sem contato registrado.</p>')+'</div></details></div>';
 }
@@ -1171,7 +1171,7 @@ function fichaLead(id) {
   var pendentes = (TAREFAS || []).filter(function(t){return t.cliente===id && !t.feita && !t.cancelada;});
   var qtdPendencias = pendentes.length + ((L.proximo || L.proximo_em) ? 1 : 0);
   return '<button class="veu" id="veu" type="button" aria-label="Fechar"></button>'
-  + '<aside class="gaveta" role="dialog" aria-modal="true" aria-label="Lead ' + esc(L.nome) + '">'
+  + '<aside class="gaveta gaveta-lead" role="dialog" aria-modal="true" aria-label="Lead ' + esc(L.nome) + '">'
   + '<div class="gtopo"><div style="min-width:0">'
     + '<p class="olho" style="margin-bottom:3px">Lead'
       + (L.revenda ? ' · CLIENTE INDIRETO' : '') + '</p>'
@@ -1206,8 +1206,8 @@ function fichaLead(id) {
           + '<option value="manter">Manter na agenda para acompanhamento</option>'
           + '<option value="cancelar">Cancelar pendências e tirar da agenda</option></select>'
           + '<p class="nota">O histórico de contatos e tarefas permanece salvo.</p></div>' : '')
-      + '<div class="acoes"><button type="button" class="pri" data-a="lead-encerrar">Salvar desfecho</button>'
-      + '<button type="button" data-a="lead-encerrar-cancelar">Voltar</button></div></div></section>'
+      + '<div class="acoes"><button type="button" data-a="lead-encerrar-cancelar">Voltar</button>'
+      + '<button type="button" class="pri" data-a="lead-encerrar">Salvar desfecho</button></div></div></section>'
     + atalhosContato(L) + formularioContato(id) + painelTarefas(id)
     + '<details class="cartao cadastro-detalhes"><summary>Dados e relacionamento do lead</summary>'
     + '<div class="cartao"' + (L.revenda ? ' style="border-color:#f0dcae"' : '') + '>'
