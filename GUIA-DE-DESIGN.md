@@ -1,6 +1,6 @@
 # Piromax — auditoria de UX/UI e guia de design
 
-**Versão:** 1.1 · **Data:** 01/10/2026 · **Âmbito:** acesso da equipe, painel, produção, pedidos, solicitações, melhorias, CRM e relatório individual.
+**Versão:** 1.2 · **Data:** 02/10/2026 · **Âmbito:** acesso da equipe, painel, produção, pedidos, solicitações, melhorias, CRM e relatório individual.
 
 Este é o padrão para as próximas alterações de interface. Os achados abaixo registram o estado anterior à implementação e os critérios de correção. O estado atual fica registrado a seguir. Não é uma declaração de conformidade em acessibilidade nem de que o produto já está pronto para venda externa.
 
@@ -8,6 +8,7 @@ Este é o padrão para as próximas alterações de interface. Os achados abaixo
 
 - `static/design-system.css` reúne cores, tipografia de tela, foco, controles e cartões; os 12 templates ativos o carregam. Textos informativos antes muito claros foram escurecidos e os controles principais ganharam área de interação de 44 px.
 - O CRM ganhou filtros de altura uniforme, tabela compacta com colunas de decisão e rolagem sinalizada para os detalhes, gaveta mais estreita, quadro limitado a oito cartões por etapa e acesso à lista filtrada. No celular, Prospecção abre primeiro na lista; o quadro continua disponível.
+- Uma revisão da ficha corrigiu alturas inconsistentes que apareceram em uso real: campos de texto, data e seleção têm 44 px explícitos; só áreas de texto podem ser redimensionadas. A ficha de lead usa até 820 px, a troca de etapa ocupa a largura disponível, e o destino das pendências ocupa a linha inteira. Essas medidas foram conferidas em prévia renderizada com dados fictícios no desktop e no celular.
 - A revisão visual com dados fictícios confirmou Clientes e Prospecção em 1280 px, a carteira em 360, 390, 768 e 1600 px, e a lista de leads em 390 px. Pré-visualizações estáticas a 390 px também verificaram login, painel principal, produção, pedidos, solicitações e melhorias; os controles densos e cabeçalhos foram ajustados onde necessário. Os testes automatizados cobrem o fluxo de lista do quadro. Ainda falta a rodada interativa completa dos módulos operacionais com dados e estados reais, além de erro, zoom, impressão e Safari/Chrome, antes de considerar o sistema finalizado para venda externa.
 
 ## Como a revisão foi feita
@@ -109,6 +110,7 @@ Espaçamento: escala de **4, 8, 12, 16, 24, 32 e 48 px**. Cartão: 16–24 px in
 | Componente | Regra |
 | --- | --- |
 | Campo, seleção, busca | Altura **44 px** em tela; rótulo sempre visível ou acessível; `width:100%` dentro da célula do grid; `min-width:0`. Confirmar altura **renderizada** no Safari. |
+| Área de texto | Altura inicial coerente com a tarefa, ao menos 96 px na ficha comercial; `resize` permitido apenas nela. Inputs de data e seletores nunca recebem alça de redimensionamento. |
 | Botão primário e secundário | Altura mínima **44 px**, 14–16 px de texto, 12–16 px de padding horizontal. Uma ação primária por bloco de trabalho. |
 | Botão só com ícone | Caixa de **44×44 px**; `aria-label` descritivo; tooltip opcional. |
 | Chip/filtro compacto | Altura mínima **36 px** quando não é ação principal; área de toque de 44 px no celular. |
