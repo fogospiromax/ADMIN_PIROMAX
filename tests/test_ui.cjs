@@ -126,6 +126,24 @@ async function test(name,fn){let c=boot();try{await fn(c);await settle();assert.
   const change=c.calls.find(x=>x.url==='/admin/carteira/lead'&&x.body.etapa==='tentando');
   assert.deepEqual(change.body,{id:'lead-exemplo',etapa:'tentando'});
  });
+ await test('Large funnel shows a readable sample and opens the complete filtered list',c=>{
+  const source=c.data.prospec.leads.find(x=>x.etapa==='novo');
+  assert.ok(source);
+  for(let i=0;i<20;i++)c.data.prospec.leads.push({...source,id:'volume-'+i,nome:'Empresa fictícia '+i,etapa_origem:''});
+  c.doc.getElementById('pr-modo').click();
+  c.doc.getElementById('pr-modo').click();
+  const column=c.doc.querySelector('#pr-corpo .funil .col');
+  assert.equal(column.querySelectorAll('.lead-item').length,8);
+  const all=column.querySelector('[data-pr-etapa-list="novo"]');
+  assert.ok(all);
+  all.click();
+  assert.equal(c.api.estado.prView,'lista');
+  assert.equal(c.doc.getElementById('pr-etapa').value,'novo');
+  assert.ok(c.doc.querySelectorAll('#pr-tab tr[data-l]').length>8);
+  assert.deepEqual([...c.doc.querySelectorAll('#pr-tab thead th')].slice(1,4).map(th=>th.textContent),
+    ['Empresa / responsável','Etapa','Próximo passo']);
+  assert.ok(c.doc.querySelector('#pr-tab tr[data-l] .nm .celula-sub'));
+ });
  await test('Ambiguous imported lead stays in review until its stage is confirmed',async c=>{
   assert.match(c.doc.querySelector('[data-l="lead-sem-acao"]').textContent,/Revisar etapa importada/);
   c.api.abrirFicha('lead-sem-acao','lead');
