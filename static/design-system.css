@@ -1,0 +1,181 @@
+/* Piromax UI foundation. Screen rules only: print layouts keep their own scale. */
+:root {
+  --ui-brand: #7c3aed;
+  --ui-brand-hover: #6d28d9;
+  --ui-brand-subtle: #f5f3ff;
+  --ui-ink: #1e1b4b;
+  --ui-text: #2d3748;
+  --ui-text-secondary: #526071;
+  --ui-surface: #fff;
+  --ui-canvas: #f7f8fb;
+  --ui-border: #dfe3eb;
+  --ui-shadow: 0 1px 3px rgba(30, 27, 75, .06);
+  --ui-radius-control: 8px;
+  --ui-radius-card: 12px;
+}
+
+@media screen {
+  body { background: var(--ui-canvas); color: var(--ui-text); font-size: 16px; line-height: 1.5; }
+  .screen-title { margin: 0 0 16px; color: var(--ui-ink); font-size: 24px; font-weight: 700; line-height: 1.25; letter-spacing: -.02em; }
+  :is(.module-card, .info-card, .add-card, .req-card, .client-card,
+      .emp-card, .cartao) {
+    border-color: var(--ui-border);
+    border-radius: var(--ui-radius-card);
+    box-shadow: var(--ui-shadow);
+  }
+  button, input, select, textarea { font-family: inherit; }
+  :is(button, a, input, select, textarea, summary, [role="button"]):focus-visible {
+    outline: 2px solid var(--ui-brand);
+    outline-offset: 2px;
+  }
+  :is(button, a, input, select, textarea)[disabled] { cursor: not-allowed; }
+
+  /* Tokens used by the CRM's older styles. */
+  :root {
+    --roxo: var(--ui-brand);
+    --roxo-claro: var(--ui-brand-subtle);
+    --fundo: var(--ui-canvas);
+    --linha: var(--ui-border);
+    --texto: var(--ui-text);
+    --texto2: var(--ui-text-secondary);
+    --texto3: #637083;
+    --purple: var(--ui-brand);
+    --ink: var(--ui-ink);
+    --muted: var(--ui-text-secondary);
+    --line: var(--ui-border);
+    --bg: var(--ui-canvas);
+  }
+
+  /* Legibility across CRM and operational modules. */
+  :is(.header-brand-text .sub, .hub-date, .weather-desc, .module-desc,
+      .app-footer, .field-label, .form-label, .nome-label, .week-label-sub,
+      .emp-filled, .emp-role, .day-date, .client-count, .produced-info,
+      .concluido-sub, .req-meta, .comentario-meta, .empty-state,
+      .loading, .section-sep.normal, .worker-hint) {
+    color: var(--ui-text-secondary);
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  :is(.header-brand-text .title, .module-title, .client-name,
+      .product-name, .emp-name) { font-size: 16px; line-height: 1.35; }
+  :is(.module-desc, .daily-msg, .req-text, .product-meta, .concluido-produto) {
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  :is(.add-card-title, .field-label, .form-label, .nome-label,
+      .section-sep, .comentarios-title, .concluir-form-title) {
+    color: var(--ui-text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  :is(.tab-btn, .tipo-btn, .btn-logout, .btn-print, .back-btn) { font-size: 14px; }
+  .tab-btn:not(.active) { color: var(--ui-text-secondary); }
+  .tab-btn.active,
+  :is(.btn-submit, .btn-submit-pedido, .btn-salvar, .btn-add,
+      .btn-save, .btn-enviar-comentario) {
+    background: var(--ui-brand);
+    color: #fff;
+  }
+  :is(.btn-submit, .btn-submit-pedido, .btn-salvar, .btn-add,
+      .btn-save, .btn-enviar-comentario):not(:disabled):hover {
+    background: var(--ui-brand-hover);
+  }
+  .btn-logout:hover { color: var(--ui-brand); border-color: var(--ui-brand); }
+  .day-row.monday .day-date { color: var(--ui-brand); }
+  :is(input, textarea)::placeholder { color: #637083; opacity: 1; }
+  :is(.tab-count, .module-badge, .badge-urgent, .badge-urgente,
+      .badge-qty, .badge-date, .badge-partial, .tipo-badge) { font-size: 12px; }
+
+  /* Controls have a predictable rendered size in Safari and Chrome. */
+  button:not(.veu) { min-height: 44px; }
+  :is(.back-btn, .week-nav-btn, .btn-urgente-row, .btn-remove-row,
+      .btn-check, .btn-edit, .btn-editar, .btn-del, .btn-excluir, .btn-remove) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .produto-row { grid-template-columns: minmax(0, 1fr) 70px 116px 44px 44px; gap: 8px; }
+  .produto-row input { min-width: 0; }
+  :is(input[type="text"], input[type="search"], input[type="password"],
+      input[type="email"], input[type="tel"], input[type="number"],
+      input[type="date"], select) {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  :is(input, select, textarea) { border-radius: var(--ui-radius-control); }
+  textarea { min-height: 76px; font-size: 16px; }
+  :is(.busca, .filtro, .lead-mover, .pr-filtros .filtro,
+      #p-registros .barra .filtro) { min-height: 44px; }
+  :is(.pr-filtros .busca, #p-registros .barra .busca) { box-sizing: border-box; height: 44px; }
+  :is(.pr-filtros .busca, #p-registros .barra .busca) input { height: 100%; min-height: 0; padding-block: 0; }
+  :is(.pr-filtros .filtro, #p-registros .barra .filtro, .lead-mover) {
+    height: 44px;
+    line-height: normal;
+  }
+  :is(.ficha, .pr-escopos button, .btn-ok) { min-height: 44px; font-size: 14px; }
+  :is(.acoes button, .btn-submit, .btn-submit-pedido, .btn-salvar,
+      .btn-concluir, .btn-save, .btn-add, .btn-modal-confirm) { font-size: 14px; }
+
+  /* CRM reading scale. */
+  :is(.nota, .lede, .linha .frase, .linha .marca, .lead small,
+      .lead-dono, .prazo-lead, .acomp .t small, .hist .it,
+      .celula-sub, .pedido-detalhes, .pedidos-contagem) {
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  :is(.lead b, .linha .nome, .acomp .t b) { font-size: 15px; }
+  :is(.campo label, .lote-campo label, .lead-fluxo-label,
+      .horizonte-mes>span) { font-size: 14px; color: var(--ui-text-secondary); }
+  :is(.olho, .kv .k, .faixatopo .tile .k, .horizonte-total span,
+      .lead-fluxo-label) { font-size: 12px; color: var(--ui-text-secondary); }
+  :is(.selo, .ficha .n, .aba .cnt, .col .cab .n) { font-size: 12px; }
+  :is(th, #r-tab th) { font-size: 13px; color: var(--ui-text-secondary); }
+  :is(.hist .d, .faixatopo .tile .s, .faixatopo .anosmini .leg2,
+      .linha .leg, .acomp .q, .acomp .e, .pr-contagem) {
+    font-size: 13px;
+    color: var(--ui-text-secondary);
+  }
+  :is(.gtopo .x, .hist .del) { min-width: 44px; min-height: 44px; }
+  .gaveta { width: min(960px, 94vw); }
+  .gaveta:has(#nl-nome) { width: min(720px, 94vw); }
+  .lead-item .lead-mover { margin-bottom: 10px; }
+  .lead-item .lead { gap: 5px; }
+
+  /* The customer report has a separate A4 scale; this scale is for reading it on screen. */
+  :is(.hero-meta, .stamp, .metric small, .panel-head span, .signal p,
+      .comparison span, .section-title span, .forecast-card small,
+      .forecast-note, .activity .date, .activity p, .empty,
+      .history-table, .foot, .month, .small) {
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  :is(.metric .label, .forecast-card .month-name, .eyebrow,
+      .history-table th) { font-size: 12px; }
+  .history-table th, .history-table td { padding-block: 11px; }
+}
+
+@media screen and (max-width: 600px) {
+  .operational-header { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+  .operational-header .header-left { flex: 1 1 100%; min-width: 0; }
+  .operational-header .header-right { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .gaveta, .gaveta:has(#nl-nome) { width: 100vw; }
+  :is(.module-card, .info-card) { padding: 16px; }
+  .pr-filtros .filtro { height: 44px; }
+  .produto-row { grid-template-columns: 70px minmax(0, 1fr) 44px 44px; }
+  .produto-row input[type="text"] { grid-column: 1 / -1; grid-row: 1; }
+  .produto-row input[type="number"] { grid-column: 1; grid-row: 2; }
+  .produto-row input[type="date"] { grid-column: 2; grid-row: 2; }
+  .produto-row .btn-urgente-row { grid-column: 3; grid-row: 2; }
+  .produto-row .btn-remove-row { grid-column: 4; grid-row: 2; }
+  .day-label { width: 88px; }
+}
+
+@media screen and (max-width: 390px) {
+  .form-footer, .req-actions-btns { flex-wrap: wrap; }
+  .form-footer > *, .req-actions-btns > * { flex: 1 1 100%; }
+  .day-row { flex-wrap: wrap; }
+  .day-input { flex-basis: 100%; }
+}
+
+@media print {
+  .screen-title { display: none !important; }
+}

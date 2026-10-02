@@ -16,7 +16,8 @@ var IX = {};                      /* id do cliente -> objeto */
 var LEAD_IX = {};                 /* id do lead -> objeto */
 var estado = { tela: 'hoje', tipo: 'todos', limite: 10, view: 'todos',
                busca: '', uf: '', cidade: '', ord: 'receita', asc: false, marcados: {},
-               prView: 'funil', prBusca: '', prUf: '', prCidade: '', prEtapa: '',
+               prView: window.matchMedia && window.matchMedia('(max-width:600px)').matches ? 'lista' : 'funil',
+               prBusca: '', prUf: '', prCidade: '', prEtapa: '',
                prRevenda: '', prMarcados: {}, prAcao: '', prEscopo: 'ativos' };
 var abertaId = null;              /* ficha aberta, para reabrir após gravar */
 var abertoTipo = 'cliente';
@@ -199,6 +200,7 @@ function irPara(t, semHash) {
   estado.tela = t;
   TELAS.forEach(function (x) { $('p-' + x[0]).hidden = (x[0] !== t); });
   pintarAbas();
+  if (t === 'registros') requestAnimationFrame(atualizarAvisoTabela);
   if (!semHash) history.replaceState(null, '', '#/' + t);
 }
 $('abas').addEventListener('click', function (e) {
@@ -601,14 +603,21 @@ function pintarRegistros() {
       + '<td class="num horizonte-col">' + (c.previsao_trimestre == null ? '—' : moeda(c.previsao_trimestre))
         + '<small class="celula-sub">' + (c.previsao_trimestre == null ? (c.horizonte.encerrado ? 'cliente encerrado' : 'sem base comparável')
           : esc(mesrot(c.horizonte.meses[0].mes) + ' a ' + mesrot(c.horizonte.meses[2].mes))) + '</small></td>'
-      + '<td>' + (ult ? dia(ult.data) : 'Sem registro') + '<small class="celula-sub">' + esc(c.contato_rotulo) + '</small></td>'
+      + '<td class="extra-col">' + (ult ? dia(ult.data) : 'Sem registro') + '<small class="celula-sub">' + esc(c.contato_rotulo) + '</small></td>'
       + '<td class="proxima-col">' + (proximaTarefa(c.id) ? esc(proximaTarefa(c.id).titulo) + '<small class="celula-sub">' + dia(proximaTarefa(c.id).prazo) + '</small>' : 'Sem ação agendada') + '</td></tr>';
   }).join('') : '<tr><td colspan="15"><p class="vazio">Nenhum cliente nesta visão.</p></td></tr>';
   document.querySelectorAll('#r-tab th button[data-s]').forEach(function(b){
     b.parentElement.setAttribute('aria-sort', b.dataset.s === estado.ord ? (estado.asc ? 'ascending':'descending') : 'none');
   });
   pintarLote();
+  if (estado.tela === 'registros') requestAnimationFrame(atualizarAvisoTabela);
 }
+
+function atualizarAvisoTabela() {
+  var area=document.querySelector('#p-registros .tw'), aviso=$('r-scroll-hint');
+  if (area && aviso) aviso.hidden=area.scrollWidth <= area.clientWidth + 2;
+}
+window.addEventListener('resize', atualizarAvisoTabela);
 
 /* Os filtros so oferecem o que existe na base. Uma lista de 27 estados com 26
    vazios e pior do que nao ter filtro. Fica separado do resto porque precisa
@@ -2063,33 +2072,39 @@ function pintarProspeccao() {
     + (prFiltrando() ? '<button type="button" id="pr-limpa" class="ficha">limpar filtros ✕</button>' : '')
     + '</div></div>';
 
-  /* ── funil: todas as colunas rolam por dentro, ninguém fica escondido ── */
+  /* O quadro mostra uma amostra acionável; a lista recebe o trabalho em massa. */
   var colunas = (estado.prEscopo === 'encerrados' ? etapasEncerradas() : etapasAbertas()).map(function (e) {
     var l = vis.filter(function (x) { return x.etapa === e[0]; });
     return '<div class="cartao col"><div class="cab">'
       + '<i style="background:' + CORES_ETAPA[e[0]] + '"></i><h3>' + e[1] + '</h3>'
       + '<span class="n">' + l.length + '</span></div>'
       + '<p class="nota" style="margin:0">' + e[2] + '</p>'
-      + (l.length ? '<div class="pilha">' + l.map(cartaoLead).join('') + '</div>'
+      + (l.length ? '<div class="pilha">' + l.slice(0, 8).map(cartaoLead).join('') + '</div>'
+          + (l.length > 8 ? '<button type="button" class="funil-ver-todos" data-pr-etapa-list="'
+            + e[0] + '">Ver todos os ' + l.length + ' na lista <span aria-hidden="true">→</span></button>' : '')
           : '<p class="vazio" style="padding:16px 8px;font-size:.78rem">vazio</p>')
       + '</div>';
   }).join('');
 
   /* ── lista: a mesma coisa em tabela, para varrer de uma vez ── */
-  var lista = loteLeads(vis) + '<div class="tw"><table id="pr-tab"><thead><tr>'
+  var lista = loteLeads(vis) + '<p class="pr-scroll-hint">Deslize a tabela para ver os demais dados de cada lead.</p>'
+    + '<div class="tw"><table id="pr-tab"><thead><tr>'
     + '<th class="marc"><input type="checkbox" id="pr-todos" aria-label="Marcar todos"></th>'
-    + '<th>Empresa</th><th>Cidade</th><th>UF</th><th>Tipo</th><th>Etapa</th>'
-    + '<th>Telefone</th><th>Instagram</th><th>Compra por revenda</th><th>Próximo passo</th></tr></thead><tbody>'
+    + '<th>Empresa / responsável</th><th>Etapa</th><th>Próximo passo</th>'
+    + '<th>Cidade</th><th>UF</th><th>Tipo</th><th>Telefone</th><th>Instagram</th><th>Compra por revenda</th></tr></thead><tbody>'
     + (vis.length ? vis.map(function (x) {
         return '<tr data-l="' + esc(x.id) + '" tabindex="0">'
           + '<td class="marc"><input type="checkbox" data-pm="' + esc(x.id) + '"'
             + (estado.prMarcados[x.id] ? ' checked' : '')
             + ' aria-label="Marcar ' + esc(x.nome) + '"></td>'
-          + '<td class="nm">' + esc(x.nome) + '</td>'
-          + '<td>' + esc(x.cidade || '—') + '</td><td>' + esc(x.uf || '—') + '</td>'
-          + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(x.segmento || '—') + '</td>'
+          + '<td class="nm">' + esc(x.nome) + '<small class="celula-sub">' + esc(nomeUsuario(x.responsavel_usuario)) + '</small></td>'
           + '<td>' + seletorEtapaLead(x, 'lista')
           + (x.etapa_origem ? '<small class="lead-revisar">Revisar etapa importada</small>' : '') + '</td>'
+          + '<td class="pr-proximo">' + esc(x.proximo || 'Sem próximo passo')
+            + (x.proximo_em ? ' <span class="mono">(' + dia(x.proximo_em) + ')</span>' : '')
+            + '</td>'
+          + '<td>' + esc(x.cidade || '—') + '</td><td>' + esc(x.uf || '—') + '</td>'
+          + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(x.segmento || '—') + '</td>'
           + '<td class="mono" style="font-size:.78rem">' + esc(x.telefone || '—') + '</td>'
           + '<td>' + (x.instagram
               ? '<a href="' + esc(x.instagram) + '" target="_blank" rel="noopener noreferrer" '
@@ -2099,9 +2114,7 @@ function pintarProspeccao() {
               ? '<span class="selo s-ritmo">sim</span>'
                 + (x.revenda_de ? ' <small style="color:var(--texto2)">' + esc(x.revenda_de) + '</small>' : '')
               : '<span style="color:var(--texto3)">—</span>') + '</td>'
-          + '<td style="font-size:.79rem;color:var(--texto2)">' + esc(x.proximo || '—')
-            + (x.proximo_em ? ' <span class="mono" style="color:var(--texto3)">(' + dia(x.proximo_em) + ')</span>' : '')
-            + '</td></tr>';
+          + '</tr>';
       }).join('')
       : '<tr><td colspan="10"><p class="vazio">Nenhum lead com esses filtros.</p></td></tr>')
     + '</tbody></table></div>';
@@ -2231,6 +2244,14 @@ function perfil(url) {
 }
 
 $('pr-corpo').addEventListener('click', function (e) {
+  var verEtapa=e.target.closest('[data-pr-etapa-list]');
+  if (verEtapa) {
+    estado.prEtapa=verEtapa.dataset.prEtapaList;
+    estado.prView='lista';
+    pintarProspeccao();
+    $('pr-etapa').focus();
+    return;
+  }
   if (e.target.closest('[data-pr-revisar-legado]')) {
     prFiltro={seg:'',reg:''}; estado.prEscopo='encerrados'; estado.prRevenda='sim';
     estado.prEtapa=estado.prAcao=estado.prBusca=estado.prUf=estado.prCidade=estado.prDono='';
