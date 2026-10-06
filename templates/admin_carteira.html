@@ -423,8 +423,8 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
       <th class="extra-col">Cidade / UF</th>
       <th class="extra-col">Área de atuação</th>
       <th title="Saúde comercial">Tendência</th>
+      <th class="num variacao-ano"><button type="button" data-s="var_ytd_pct" title="Vendas de 1º de janeiro até a última data importada, comparadas à média do mesmo período nos anos anteriores">Variação no ano</button></th>
       <th class="num extra-col"><button type="button" data-s="compras">Quantidade de compras</button></th>
-      <th class="num extra-col"><button type="button" data-s="var_ytd_pct">No ano vs. média</button></th>
       <th class="num extra-col"><button type="button" data-s="ticket">Pedido médio</button></th>
       <th class="num extra-col"><button type="button" data-s="ultima">Última compra</button></th>
       <th class="num extra-col"><button type="button" data-s="primeira">Cliente desde</button></th>
@@ -450,6 +450,10 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
     <p class="olho">Resultados</p>
     <h1>Da visão geral à próxima decisão</h1>
     <p class="lede">Os indicadores comparam o mesmo período do ano. No gráfico mensal, o mês atual é parcial e está identificado.</p>
+    <div class="acoes relatorios-pdf" aria-label="Baixar relatórios de resultados">
+      <a class="botao-pdf" href="/admin/carteira/resultados/analitico.pdf" target="_blank" rel="noopener">Relatório analítico · PDF</a>
+      <a class="botao-pdf" href="/admin/carteira/resultados/ligacoes.pdf" target="_blank" rel="noopener">Compras do mês e próximo · PDF</a>
+    </div>
     <div class="anal" style="margin-top:16px">
       <nav class="indice" aria-label="Capítulos">
         <a href="#/analise/visao">Visão geral</a>
