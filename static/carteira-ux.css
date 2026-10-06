@@ -23,6 +23,12 @@ button{cursor:pointer}
 #r-tab .num{white-space:nowrap}#r-tab .proxima-col{max-width:250px;min-width:140px}
 #r-tab .horizonte-col{min-width:132px}
 #r-tab .horizonte-col .celula-sub{text-align:right;font-size:.72rem}
+#r-tab .variacao-ano{min-width:112px;font-variant-numeric:tabular-nums}
+#r-tab .variacao-ano.pos{color:var(--bom)}
+#r-tab .variacao-ano.neg{color:var(--ruim)}
+.relatorios-pdf{margin:16px 0 2px;gap:9px;flex-wrap:wrap}
+.botao-pdf{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 14px;border:1px solid var(--linha);border-radius:8px;background:#fff;color:var(--roxo-forte);font-size:.84rem;font-weight:650;text-decoration:none}
+.botao-pdf:hover{border-color:var(--roxo);background:var(--roxo-claro)}
 #r-tab th{font-size:.73rem;color:var(--texto2);letter-spacing:.035em}
 #r-tab th[aria-sort=ascending] button::after{content:' ↑'}
 #r-tab th[aria-sort=descending] button::after{content:' ↓'}
