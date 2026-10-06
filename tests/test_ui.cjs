@@ -43,6 +43,12 @@ async function test(name,fn){let c=boot();try{await fn(c);await settle();assert.
   for(const id of ['h-agenda','r-corpo','pr-corpo','a-corpo','d-corpo'])assert.ok(c.doc.getElementById(id).innerHTML.length>20,id);
   assert.ok(!c.doc.getElementById('h-sub').textContent.includes('em jogo'));
  });
+ await test('Client variation is visible beside trend and both PDF reports are available',c=>{
+  const headers=[...c.doc.querySelectorAll('#r-tab thead th')].map(th=>th.textContent.trim());
+  assert.equal(headers[headers.indexOf('Tendência')+1],'Variação no ano');
+  assert.ok(c.doc.querySelector('#r-tab tbody .variacao-ano'));
+  assert.equal(c.doc.querySelectorAll('.relatorios-pdf a[href$=".pdf"]').length,2);
+ });
  await test('Navigation has labelled panels and keeps keyboard focus',c=>{
   const tabs=Array.from(c.doc.querySelectorAll('#abas [role="tab"]'));
   assert.equal(tabs.length,5);
