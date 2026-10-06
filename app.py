@@ -2,12 +2,13 @@ import os
 import secrets
 import uuid
 import smtplib
+from io import BytesIO
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, date, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
-from flask import Flask, abort, make_response, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, abort, make_response, render_template, request, jsonify, session, redirect, url_for, send_file
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from crm_auth import USUARIOS, autenticar, sessao_valida, variavel_senha, versao_credencial
@@ -1004,6 +1005,7 @@ import json as _json
 from datetime import date as _date
 import carteira
 import relatorio_cliente
+import relatorios_resultados
 
 
 def init_carteira_db():
@@ -1294,6 +1296,28 @@ def admin_carteira_relatorio(cliente_id):
         usuario_nome=USUARIOS.get(cliente.get('responsavel_usuario'), 'Sem responsável'),
         moeda=relatorio_cliente.moeda, data_br=relatorio_cliente.data_br,
         mes_br=relatorio_cliente.mes_br))
+    resposta.headers['Cache-Control'] = 'private, no-store'
+    resposta.headers['X-Robots-Tag'] = 'noindex, nofollow, noarchive'
+    return resposta
+
+
+@app.route('/admin/carteira/resultados/<tipo>.pdf')
+@login_required
+def admin_carteira_resultados_pdf(tipo):
+    """PDFs privados, gerados sob demanda a partir dos dados atuais da carteira."""
+    if tipo not in ('analitico', 'ligacoes'):
+        abort(404)
+    dados, _, _, tarefas, _, _, _ = _carteira_dados()
+    if not dados:
+        abort(404)
+    hoje = now_sp().date()
+    if tipo == 'analitico':
+        conteudo = relatorios_resultados.pdf_analitico(dados, hoje)
+    else:
+        conteudo = relatorios_resultados.pdf_ligacoes(dados, tarefas, hoje)
+    resposta = send_file(BytesIO(conteudo), mimetype='application/pdf',
+                         as_attachment=True,
+                         download_name=f'piromax-{tipo}-{hoje.isoformat()}.pdf')
     resposta.headers['Cache-Control'] = 'private, no-store'
     resposta.headers['X-Robots-Tag'] = 'noindex, nofollow, noarchive'
     return resposta
