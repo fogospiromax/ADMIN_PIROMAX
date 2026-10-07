@@ -1051,6 +1051,20 @@ def init_carteira_db():
             criado_em  TEXT
         )''')
     cur.execute('''
+        CREATE TABLE IF NOT EXISTS carteira_comunicacao (
+            id TEXT PRIMARY KEY,
+            cliente_id TEXT NOT NULL,
+            data DATE NOT NULL,
+            canal TEXT NOT NULL DEFAULT 'whatsapp',
+            assunto TEXT NOT NULL DEFAULT '',
+            usuario_id TEXT NOT NULL,
+            criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            cancelado_em TIMESTAMPTZ,
+            cancelado_por TEXT
+        )''')
+    cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_comunicacao_mes '
+                'ON carteira_comunicacao(data, cliente_id) WHERE cancelado_em IS NULL')
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS carteira_tarefa (
             id         TEXT PRIMARY KEY,
             cliente_id TEXT NOT NULL,
@@ -1252,6 +1266,75 @@ def admin_carteira_dados():
         'pessoal': pessoal,
         'candidatos': carteira.candidatos_unificacao(dados) if dados else [],
     })
+
+
+@app.route('/admin/carteira/comunicacoes', methods=['GET', 'POST'])
+@login_required
+def admin_carteira_comunicacoes():
+    """Registro manual de mensagens; não envia WhatsApp nem muda a rotina de contato."""
+    if request.method == 'GET':
+        mes = (request.args.get('mes') or today_sp()[:7]).strip()
+        try:
+            inicio = _date.fromisoformat(mes + '-01')
+            if inicio.strftime('%Y-%m') != mes:
+                raise ValueError
+        except ValueError:
+            return jsonify({'success': False, 'erro': 'Mês inválido.'}), 400
+        fim = _date(inicio.year + (inicio.month == 12), inicio.month % 12 + 1, 1)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT id, cliente_id, data, canal, assunto, usuario_id, criado_em '
+                    'FROM carteira_comunicacao '
+                    'WHERE data >= %s AND data < %s AND cancelado_em IS NULL '
+                    'ORDER BY data DESC, criado_em DESC, id DESC', (inicio, fim))
+        registros = [{'id': r['id'], 'cliente_id': r['cliente_id'],
+                      'data': str(r['data'])[:10], 'canal': r['canal'],
+                      'assunto': r['assunto'], 'usuario_id': r['usuario_id'],
+                      'criado_em': str(r['criado_em'])} for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return jsonify({'success': True, 'mes': mes, 'registros': registros})
+
+    d = request.get_json(silent=True) or {}
+    cid = str(d.get('cliente_id') or '').strip()
+    assunto = str(d.get('assunto') or '').strip()
+    if not cid or len(assunto) > 120:
+        return jsonify({'success': False, 'erro': 'Confira o cliente e o assunto (até 120 caracteres).'}), 400
+    dados, _, _, _, _, _, _ = _carteira_dados()
+    cliente = next((c for c in (dados or {}).get('clientes', []) if c['id'] == cid), None)
+    if not cliente or cliente.get('situacao') != 'ativo':
+        return jsonify({'success': False, 'erro': 'Somente clientes ativos podem ser marcados.'}), 400
+    novo = str(uuid.uuid4())
+    usuario = sessao_valida(session, app.secret_key)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('INSERT INTO carteira_comunicacao '
+                '(id, cliente_id, data, canal, assunto, usuario_id) '
+                'VALUES (%s,%s,%s,%s,%s,%s)',
+                (novo, cid, today_sp(), 'whatsapp', assunto, usuario))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'success': True, 'id': novo})
+
+
+@app.route('/admin/carteira/comunicacoes/<registro_id>/desfazer', methods=['POST'])
+@login_required
+def admin_carteira_comunicacao_desfazer(registro_id):
+    """Correção reversível de um envio marcado pelo próprio usuário."""
+    usuario = sessao_valida(session, app.secret_key)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('UPDATE carteira_comunicacao SET cancelado_em=NOW(), cancelado_por=%s '
+                'WHERE id=%s AND usuario_id=%s AND cancelado_em IS NULL RETURNING id',
+                (usuario, registro_id, usuario))
+    alterado = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+    if not alterado:
+        return jsonify({'success': False, 'erro': 'Registro não encontrado ou feito por outra pessoa.'}), 404
+    return jsonify({'success': True})
 
 
 @app.route('/admin/carteira/cliente/<cliente_id>/pedidos')

@@ -20,7 +20,7 @@ Este é o padrão para as próximas alterações de interface. Os achados abaixo
 
 ## Veredito de produto
 
-O sistema tem uma identidade reconhecível e um fluxo comercial útil: o CRM separa Hoje, Clientes, Prospecção, Resultados e Dados; a ficha traz ações e contexto; o relatório individual diferencia realizado de estimado. A navegação do CRM, o foco visível e o tratamento de teclado da gaveta são bons pontos de partida.
+O sistema tem uma identidade reconhecível e um fluxo comercial útil: o CRM separa Hoje, Clientes, Comunicações, Prospecção, Resultados e Dados; a ficha traz ações e contexto; o relatório individual diferencia realizado de estimado. A navegação do CRM, o foco visível e o tratamento de teclado da gaveta são bons pontos de partida.
 
 A camada visual compartilhada agora cobre os templates ativos, mas parte das regras antigas continua dentro de cada template. A consolidação de componentes e comportamentos ainda é trabalho futuro. Para uma demonstração de produto maduro, a prioridade é validar legibilidade, estados e fluxos completos antes de acrescentar efeitos visuais.
 
@@ -47,6 +47,7 @@ A camada visual compartilhada agora cobre os templates ativos, mas parte das reg
 | Painel da equipe e painel principal | Cartões de módulo fáceis de reconhecer. | Unificar cabeçalho, largura, tipografia e navegação; clima/mensagem não devem competir com a tarefa principal. |
 | Hoje | Boa separação entre agenda e sugestões; prioridade operacional clara. | Mostrar primeiro os atrasos e próximas ações; reduzir explicação repetida; ampliar metadados de data e responsável. |
 | Clientes | Filtros e seleção em lote úteis; dados comerciais ligados à ficha. | Fazer uma tabela de prioridades de coluna. Nome, saúde, valor, responsável e próxima ação precisam sobreviver a larguras menores; detalhes complementares ficam em expansão. Cabeçalho e valores numéricos precisam de alinhamento consistente. |
+| Comunicações | Registro manual de mensagens individuais, separado do contato comercial, com contagem mensal por cliente. | Exibir 0/2, 1/2 e 2/2 com texto além da cor; colocar quem falta contatar primeiro; registrar autor e assunto; permitir desfazer erro sem apagar o histórico do banco. O botão de marcar nunca deve ser confundido com envio automático. |
 | Prospecção | Estágio visível, relação indireta explícita, quadro e lista. | A lista deve ser o modo de trabalho para volumes altos; o quadro deve destacar vencidos, sem ação e responsáveis. Uniformizar os filtros renderizados e reduzir ruído em cada cartão. |
 | Ficha de cliente/lead | Ações próximas do contexto, histórico, atalhos de teclado e foco tratado. | Reorganizar em resumo, próxima ação, histórico e dados; reduzir largura quando for edição breve; manter uma ação primária por bloco e erros junto ao campo. |
 | Resultados | Comparações e notas metodológicas ajudam a interpretação. | Colocar decisão e período antes dos gráficos; manter escalas, unidades e legendas próximas dos dados; validar leitura em zoom e tela pequena. |
