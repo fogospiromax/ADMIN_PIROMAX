@@ -358,7 +358,7 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
   nav.abas{top:69px}
 }
 </style>
-<link rel="stylesheet" href="/static/carteira-ux.css?v=28">
+<link rel="stylesheet" href="/static/carteira-ux.css?v=29">
 <link rel="stylesheet" href="/static/design-system.css?v=8">
 </head>
 <body data-usuario="{{ usuario_id }}">
@@ -437,6 +437,23 @@ rect.hov:hover{fill:rgba(124,58,237,.05)}
     <p class="nota">Leads e clientes que compram por revenda ficam em <b>Prospecção</b>. Seus contatos e tarefas não se misturam aos dos clientes que compram direto.</p>
   </section>
 
+  <!-- ══ COMUNICAÇÕES ══ -->
+  <section class="painel" id="p-comunicacoes" role="tabpanel" aria-labelledby="aba-comunicacoes" hidden>
+    <p class="olho">Relacionamento</p>
+    <h1>Comunicações com clientes</h1>
+    <p class="lede">Acompanhe mensagens individuais de WhatsApp para clientes ativos. A meta é de duas por mês; o registro é manual e não envia mensagens.</p>
+    <div id="cm-resumo" class="cm-resumo" aria-live="polite"></div>
+    <div class="cartao cm-controles">
+      <div class="campo"><label for="cm-mes">Mês</label><input id="cm-mes" type="month" value="{{ hoje[:7] }}" max="{{ hoje[:7] }}"></div>
+      <div class="campo"><label for="cm-busca">Buscar cliente</label><input id="cm-busca" type="search" placeholder="Nome, cidade ou contato" autocomplete="off"></div>
+      <div class="campo"><label for="cm-responsavel">Responsável</label><select id="cm-responsavel"><option value="">Todos</option><option value="flavia">Flávia</option><option value="tiago">Tiago</option><option value="fernando">Fernando</option><option value="sem">Sem responsável</option></select></div>
+      <div class="campo"><label for="cm-status">Envios no mês</label><select id="cm-status"><option value="todos">Todos</option><option value="0">Nenhum (0/2)</option><option value="1">Um (1/2)</option><option value="2">Meta atingida (2/2 ou mais)</option></select></div>
+      <div class="campo cm-assunto"><label for="cm-assunto">Assunto desta rodada (opcional)</label><input id="cm-assunto" type="text" maxlength="120" placeholder="Ex.: novidades de outubro"></div>
+    </div>
+    <p class="nota cm-orientacao">Marque somente depois de enviar a mensagem. O assunto acima é aplicado aos próximos registros. Comunicações não reiniciam a cadência de contato comercial.</p>
+    <div id="cm-lista" class="cm-lista" aria-live="polite"></div>
+  </section>
+
   <!-- ══ PROSPECÇÃO ══ -->
   <section class="painel" id="p-prospeccao" role="tabpanel" aria-labelledby="aba-prospeccao" hidden>
     <p class="olho">Prospecção</p>
@@ -495,6 +512,6 @@ var PESSOAL = JSON.parse({{ pessoal_json|tojson }});
 var ETAPAS = JSON.parse({{ etapas_json|tojson }});
 var HOJE = "{{ hoje }}";
 </script>
-<script src="/static/carteira.js?v=27"></script>
+<script src="/static/carteira.js?v=28"></script>
 </body>
 </html>
