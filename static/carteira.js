@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Carteira de clientes — Piromax
-   Cinco telas: Hoje, Clientes, Prospecção, Resultados, Dados.
+   Seis telas: Hoje, Clientes, Comunicações, Prospecção, Resultados, Dados.
 
    A ideia que organiza tudo: uma fila, uma ficha, um relatório. A fila de Hoje
    é o que se abre de manhã; Clientes é a lista única com filtros salvos;
@@ -19,6 +19,7 @@ var estado = { tela: 'hoje', tipo: 'todos', limite: 10, view: 'todos',
                prView: window.matchMedia && window.matchMedia('(max-width:600px)').matches ? 'lista' : 'funil',
                prBusca: '', prUf: '', prCidade: '', prEtapa: '',
                prRevenda: '', prMarcados: {}, prAcao: '', prEscopo: 'ativos' };
+var comunicacoes = [], comunicacoesMes = HOJE.slice(0, 7), comunicacoesCarregado = '', comunicacoesGravando = false;
 var abertaId = null;              /* ficha aberta, para reabrir após gravar */
 var abertoTipo = 'cliente';
 var USUARIO_ATUAL = document.body.dataset.usuario || '';
@@ -157,11 +158,12 @@ function donoRegistro(id) {
 }
 
 /* ── navegação ──────────────────────────────────────────────────────────── */
-var TELAS = [['hoje', 'Hoje'], ['registros', 'Clientes'], ['prospeccao', 'Prospecção'],
+var TELAS = [['hoje', 'Hoje'], ['registros', 'Clientes'], ['comunicacoes', 'Comunicações'], ['prospeccao', 'Prospecção'],
              ['analise', 'Resultados'], ['dados', 'Dados']];
 var ICONES_ABA = {
   hoje: '<path d="M4 5.5h16v15H4zM4 9.5h16M8 3.5v4M16 3.5v4M8 14h3l1.5 1.5L16 12"/>',
   registros: '<circle cx="9" cy="8" r="3"/><path d="M3.5 20v-2a5.5 5.5 0 0 1 11 0v2zM17 5h4M17 9h4M17 13h4"/>',
+  comunicacoes: '<path d="M4 5h16v12H8l-4 3V5zM8 9h8M8 13h5"/>',
   prospeccao: '<path d="M4 5h16v14H4zM4 10h16M9 10v9M16 10v9"/>',
   analise: '<path d="M4 19V5M4 19h16M8 16v-4M13 16V8M18 16V5"/>',
   dados: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'
@@ -201,6 +203,7 @@ function irPara(t, semHash) {
   TELAS.forEach(function (x) { $('p-' + x[0]).hidden = (x[0] !== t); });
   pintarAbas();
   if (t === 'registros') requestAnimationFrame(atualizarAvisoTabela);
+  if (t === 'comunicacoes' && comunicacoesCarregado !== comunicacoesMes) carregarComunicacoes();
   if (!semHash) history.replaceState(null, '', '#/' + t);
 }
 $('abas').addEventListener('click', function (e) {
@@ -237,6 +240,103 @@ function rota() {
   if (t === 'analise' && cap && $(cap)) $(cap).scrollIntoView({ block: 'start' });
 }
 window.addEventListener('hashchange', rota);
+
+/* ═══ COMUNICAÇÕES ═══════════════════════════════════════════════════════ */
+function clientesComunicacoes() {
+  return (D && D.clientes || []).filter(function(c){return c.situacao === 'ativo';});
+}
+function comunicacoesPorCliente() {
+  var porCliente = {};
+  comunicacoes.forEach(function(r){(porCliente[r.cliente_id] || (porCliente[r.cliente_id] = [])).push(r);});
+  return porCliente;
+}
+function pintarComunicacoes() {
+  var clientes = clientesComunicacoes(), porCliente = comunicacoesPorCliente();
+  var emDia = clientes.filter(function(c){return (porCliente[c.id] || []).length >= 2;}).length;
+  var uma = clientes.filter(function(c){return (porCliente[c.id] || []).length === 1;}).length;
+  var nenhuma = clientes.length - emDia - uma;
+  $('cm-resumo').innerHTML = '<div class="cm-indicador"><strong>'+nenhuma+'</strong><span>Sem mensagem neste mês</span></div>'
+    + '<div class="cm-indicador"><strong>'+uma+'</strong><span>Uma mensagem enviada</span></div>'
+    + '<div class="cm-indicador"><strong>'+emDia+'</strong><span>Meta de duas atingida</span></div>';
+  var busca = $('cm-busca').value.trim().toLocaleLowerCase('pt-BR');
+  var dono = $('cm-responsavel').value, status = $('cm-status').value;
+  var filtrados = clientes.filter(function(c){
+    var n = (porCliente[c.id] || []).length;
+    if (busca && (c.nome+' '+(c.cidade || '')+' '+(c.contato || '')).toLocaleLowerCase('pt-BR').indexOf(busca) < 0) return false;
+    if (dono && (dono === 'sem' ? !!c.responsavel_usuario : c.responsavel_usuario !== dono)) return false;
+    return status === 'todos' || (status === '2' ? n >= 2 : n === Number(status));
+  }).sort(function(a,b){
+    var da = Math.min((porCliente[a.id] || []).length, 2), db = Math.min((porCliente[b.id] || []).length, 2);
+    return da - db || (b.ytd_atual || 0) - (a.ytd_atual || 0) || a.nome.localeCompare(b.nome, 'pt-BR');
+  });
+  var atual = comunicacoesMes === HOJE.slice(0,7);
+  $('cm-assunto').disabled = !atual;
+  $('cm-lista').innerHTML = filtrados.length ? filtrados.map(function(c){
+    var envios = porCliente[c.id] || [], ultimo = envios[0], qtd = envios.length;
+    var podeDesfazer = ultimo && ultimo.usuario_id === USUARIO_ATUAL;
+    return '<div class="cm-linha'+(qtd >= 2 ? ' cm-feita' : '')+'">'
+      + '<div class="cm-identidade"><strong>'+esc(c.nome)+'</strong><span>'
+      + esc([c.cidade, c.uf_base || c.uf].filter(Boolean).join(' / ') || 'Localização não informada')+'</span></div>'
+      + '<div class="cm-meta"><b>'+esc(nomeUsuario(c.responsavel_usuario))+'</b>Responsável</div>'
+      + '<div class="cm-meta"><b>'+qtd+'/2</b>mensagens no mês</div>'
+      + '<div class="cm-acao">'
+      + (atual ? '<button type="button" data-cm-enviar="'+esc(c.id)+'" aria-label="Marcar mensagem enviada para '+esc(c.nome)+'"'+(comunicacoesGravando?' disabled':'')+'>Marcar enviada</button>' : '')
+      + (podeDesfazer ? '<button type="button" class="cm-desfazer" data-cm-desfazer="'+esc(ultimo.id)+'" aria-label="Desfazer último registro de '+esc(c.nome)+'"'+(comunicacoesGravando?' disabled':'')+'>Desfazer último registro</button>' : '')
+      + '</div>'
+      + '<div class="cm-envio">'+(ultimo ? 'Última mensagem: '+dia(ultimo.data)+' · '+esc(nomeUsuario(ultimo.usuario_id))
+        +(ultimo.assunto ? ' · '+esc(ultimo.assunto) : '') : 'Ainda sem mensagem neste mês')+'</div>'
+      + (qtd > 1 ? '<details class="cm-historico"><summary>Ver '+qtd+' registros</summary><ul>'
+        + envios.map(function(r){return '<li>'+dia(r.data)+' · '+esc(nomeUsuario(r.usuario_id))
+          +(r.assunto ? ' · '+esc(r.assunto) : '')
+          +(r.usuario_id === USUARIO_ATUAL ? ' <button type="button" data-cm-desfazer="'+esc(r.id)+'"'+(comunicacoesGravando?' disabled':'')+'>Desfazer</button>' : '')
+          +'</li>';}).join('')+'</ul></details>' : '')
+      + '</div>';
+  }).join('') : '<div class="cartao"><p class="nota" style="margin:0">Nenhum cliente ativo corresponde a esses filtros.</p></div>';
+}
+function carregarComunicacoes() {
+  var mes = comunicacoesMes;
+  $('cm-lista').innerHTML = '<div class="cartao"><p class="nota" style="margin:0">Carregando registros…</p></div>';
+  return fetch('/admin/carteira/comunicacoes?mes='+encodeURIComponent(mes))
+    .then(function(r){return r.json();}).then(function(j){
+      if(!j.success) throw new Error(j.erro || 'Não foi possível carregar.');
+      if (mes !== comunicacoesMes) return;
+      comunicacoes = j.registros || []; comunicacoesCarregado = mes;
+      pintarComunicacoes();
+    }).catch(function(e){
+      if (mes !== comunicacoesMes) return;
+      comunicacoesCarregado = '';
+      $('cm-lista').innerHTML = '<div class="cartao"><p class="nota" style="margin:0">Não foi possível carregar os registros. <button type="button" data-cm-recarregar> Tentar novamente</button></p></div>';
+      recado(e.message || 'Erro de conexão.', true);
+    });
+}
+['cm-busca','cm-responsavel','cm-status'].forEach(function(id){
+  $(id).addEventListener(id === 'cm-busca' ? 'input' : 'change', pintarComunicacoes);
+});
+$('cm-mes').addEventListener('change', function(){
+  if (!this.value || this.value > HOJE.slice(0,7)) { this.value = comunicacoesMes; return; }
+  comunicacoesMes = this.value;
+  comunicacoesCarregado = '';
+  carregarComunicacoes();
+});
+$('cm-lista').addEventListener('click', function(e){
+  if(e.target.closest('[data-cm-recarregar]')) { carregarComunicacoes(); return; }
+  var botao = e.target.closest('[data-cm-enviar], [data-cm-desfazer]');
+  if (!botao || comunicacoesGravando) return;
+  var desfazer = botao.dataset.cmDesfazer;
+  if (desfazer && !window.confirm('Desfazer este registro de mensagem?')) return;
+  comunicacoesGravando = true;
+  pintarComunicacoes();
+  var url = desfazer ? '/admin/carteira/comunicacoes/'+encodeURIComponent(desfazer)+'/desfazer'
+    : '/admin/carteira/comunicacoes';
+  var body = desfazer ? {} : {cliente_id:botao.dataset.cmEnviar, assunto:$('cm-assunto').value.trim()};
+  fetch(url, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();}).then(function(j){
+      if (!j.success) throw new Error(j.erro || 'Não foi possível salvar.');
+      recado(desfazer ? 'Registro desfeito.' : 'Mensagem registrada.');
+      return carregarComunicacoes();
+    }).catch(function(e){recado(e.message || 'Confira a conexão e tente novamente.', true);})
+    .finally(function(){comunicacoesGravando=false;pintarComunicacoes();});
+});
 
 /* ═══ HOJE ═══════════════════════════════════════════════════════════════ */
 var RESULTADOS = {conversou:'Conversou', sem_resposta:'Sem resposta', orcamento:'Pediu orçamento', retorno:'Retorno combinado', sem_interesse:'Sem interesse'};
@@ -2493,6 +2593,7 @@ function pintarTudo() {
   pintarAbas();
   pintarHoje();
   pintarRegistros();
+  pintarComunicacoes();
   pintarProspeccao();
   pintarAnalise();
   pintarDados();

@@ -350,6 +350,40 @@ details.saiba[open] summary::before{transform:rotate(90deg)}
 @media(max-width:850px){.pr-filtros-principal{grid-template-columns:repeat(2,minmax(0,1fr))}.pr-filtros-principal .busca{grid-column:1/-1}.pr-filtros-secundaria{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.pr-filtros-principal,.pr-filtros-secundaria,.pr-lote-campos{grid-template-columns:1fr}.pr-filtros-principal .busca{grid-column:1}.pr-filtros-acoes .acoes{margin-left:0}.pr-contagem{flex-basis:100%}.horizonte-meses{grid-template-columns:1fr}.horizonte-total{text-align:left}}
 
+/* Comunicações: lista compacta para marcar envios individuais sem perder contexto. */
+.cm-resumo{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0 14px}
+.cm-indicador{background:#fff;border:1px solid var(--linha);border-radius:12px;padding:15px 17px;box-shadow:var(--ui-shadow)}
+.cm-indicador strong{display:block;font-size:1.55rem;line-height:1.2;color:var(--roxo-forte);font-variant-numeric:tabular-nums}
+.cm-indicador span{display:block;color:var(--texto2);font-size:.88rem;margin-top:3px}
+.cm-controles{display:grid;grid-template-columns:minmax(130px,.7fr) minmax(220px,1.8fr) minmax(150px,1fr) minmax(180px,1.1fr);gap:12px;align-items:end}
+.cm-controles .campo{min-width:0}
+.cm-controles .campo label{font-size:.78rem;text-transform:none;letter-spacing:0;color:var(--texto2)}
+.cm-controles :is(input,select){height:44px;min-height:44px;width:100%;background:#fff;font-size:.88rem}
+.cm-controles .cm-assunto{grid-column:1/-1}
+.cm-orientacao{max-width:none;margin:12px 0 16px}
+.cm-lista{display:flex;flex-direction:column;gap:9px}
+.cm-linha{display:grid;grid-template-columns:minmax(0,2fr) minmax(140px,.8fr) minmax(150px,.8fr) auto;gap:16px;align-items:center;background:#fff;border:1px solid var(--linha);border-radius:12px;padding:14px 16px;box-shadow:var(--ui-shadow)}
+.cm-linha.cm-feita{border-color:#c9e4d6}
+.cm-identidade{min-width:0}
+.cm-identidade strong{display:block;color:var(--roxo-forte);font-size:.93rem;overflow-wrap:anywhere}
+.cm-identidade span,.cm-envio small{display:block;color:var(--texto2);font-size:.79rem;line-height:1.4;margin-top:3px}
+.cm-meta{font-size:.85rem;color:var(--texto2)}
+.cm-meta b{display:block;color:var(--roxo-forte);font-size:1rem;font-variant-numeric:tabular-nums}
+.cm-envio{grid-column:1/4;min-width:0;color:var(--texto);font-size:.84rem;overflow-wrap:anywhere}
+.cm-acao{display:flex;flex-direction:column;gap:4px;align-items:stretch;min-width:154px}
+.cm-acao button{border:1px solid var(--roxo);background:var(--roxo);color:#fff;border-radius:8px;padding:8px 12px;font-weight:650;font-size:.83rem;cursor:pointer;min-height:44px}
+.cm-acao button:hover:not(:disabled){background:#6d28d9}
+.cm-acao button:disabled{opacity:.55;cursor:wait}
+.cm-acao .cm-desfazer{border:0;background:transparent;color:var(--texto2);font-size:.77rem;min-height:44px}
+.cm-acao .cm-desfazer:hover:not(:disabled){background:var(--roxo-claro);color:var(--roxo)}
+.cm-historico{grid-column:1/-1;border-top:1px solid var(--linha);padding-top:8px;font-size:.8rem;color:var(--texto2)}
+.cm-historico summary{cursor:pointer;font-weight:600;width:max-content}
+.cm-historico ul{margin:7px 0 0 19px;padding:0;line-height:1.6}
+.cm-historico li{padding:2px 0}
+.cm-historico li button{margin-left:8px;background:transparent;border:0;color:var(--roxo);text-decoration:underline;cursor:pointer;font-size:.79rem;padding:5px}
+@media(max-width:780px){.cm-controles{grid-template-columns:repeat(2,minmax(0,1fr))}.cm-linha{grid-template-columns:minmax(0,1fr) auto}.cm-envio{grid-column:1}.cm-acao{grid-column:2;grid-row:1/4}}
+@media(max-width:520px){.cm-resumo{grid-template-columns:1fr 1fr;gap:8px}.cm-indicador{padding:12px}.cm-indicador strong{font-size:1.25rem}.cm-controles{grid-template-columns:1fr}.cm-linha{gap:8px;padding:12px}.cm-acao{min-width:120px}.cm-acao button{font-size:.78rem;padding:7px 9px}}
+
 /* O funil expõe etapa, desfecho e próximo passo sem abrir o cadastro. */
 .pr-escopos{display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 14px}
 .pr-escopos button{min-height:40px;padding:8px 13px;border:1px solid var(--linha);border-radius:9px;background:#fff;color:var(--texto2);font-size:.83rem;font-weight:650}
