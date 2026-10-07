@@ -105,9 +105,7 @@ def preparar_ligacoes(dados, tarefas, hoje):
                 'proxima_acao': (retorno.get('titulo') or '') if retorno else '',
                 'proxima_data': (retorno.get('prazo') or '') if retorno else '',
             })
-        linhas.sort(key=lambda x: (x['realizado'] is not None and x['realizado'] > 0,
-                                    -x['anos_com_compra'], -(x['media'] or 0), x['cliente'])
-                    if atual else (-x['anos_com_compra'], -(x['media'] or 0), x['cliente']))
+        linhas.sort(key=lambda x: (x['media'] is None, -(x['media'] or 0), x['cliente']))
         secoes.append({'ano': ano, 'mes': mes, 'atual': atual, 'linhas': linhas,
                        'media_total': sum(x['media'] or 0 for x in linhas),
                        'realizado_total': (sum(x['realizado'] or 0 for x in linhas)
@@ -201,7 +199,8 @@ def pdf_ligacoes(dados, tarefas, hoje):
         subtitulo = ('Vendido até a última importação e histórico de compra para orientar contato.'
                      if secao['atual'] else
                      'Média dos mesmos meses dos dois anos anteriores; não são pedidos confirmados.')
-        story.extend([_p(titulo, s['h2']), _p(subtitulo, s['sub'])])
+        story.extend([_p(titulo, s['h2']),
+                      _p(subtitulo + ' Ordenado pela média histórica, do maior para o menor.', s['sub'])])
         story.append(_p(f'{len(secao["linhas"])} cliente(s) na lista · '
                         f'média histórica somada: {moeda(secao["media_total"])}'
                         + (f' · vendido por esses clientes neste mês: {moeda(secao["realizado_total"])}'
