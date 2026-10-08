@@ -20,6 +20,8 @@ var estado = { tela: 'hoje', tipo: 'todos', limite: 10, view: 'todos',
                prBusca: '', prUf: '', prCidade: '', prEtapa: '',
                prRevenda: '', prMarcados: {}, prAcao: '', prEscopo: 'ativos' };
 var comunicacoes = [], comunicacoesMes = HOJE.slice(0, 7), comunicacoesCarregado = '', comunicacoesGravando = false;
+var vendasConsulta = {busca: '', data: '', situacao: 'ativas'};
+var vendasResultado = null, vendasCarregando = false;
 var abertaId = null;              /* ficha aberta, para reabrir após gravar */
 var abertoTipo = 'cliente';
 var USUARIO_ATUAL = document.body.dataset.usuario || '';
@@ -204,6 +206,7 @@ function irPara(t, semHash) {
   pintarAbas();
   if (t === 'registros') requestAnimationFrame(atualizarAvisoTabela);
   if (t === 'comunicacoes' && comunicacoesCarregado !== comunicacoesMes) carregarComunicacoes();
+  if (t === 'dados' && !vendasResultado && !vendasCarregando) carregarVendas();
   if (!semHash) history.replaceState(null, '', '#/' + t);
 }
 $('abas').addEventListener('click', function (e) {
@@ -2456,12 +2459,25 @@ function pintarDados() {
     '<div class="cartao"><h3>Vendas</h3>'
       + '<p class="nota" style="margin-top:4px;margin-bottom:11px">Arquivo com data, cliente e valor. '
       + 'Um arquivo novo <b>soma</b>, nunca apaga: linhas idênticas às que já existem são descartadas '
-      + 'e o resto entra, então reenviar o histórico inteiro não duplica nada.</p>'
+      + 'e o resto entra. Vendas canceladas no ERP devem ser canceladas abaixo.</p>'
       + '<div class="solto" id="solto-vendas"><b>Clique ou arraste o CSV aqui</b>Data;Nome;Valor</div>'
       + '<div id="pv-vendas"></div>'
       + (m ? '<p class="nota">Hoje no banco: ' + m.notas.toLocaleString('pt-BR') + ' notas, '
             + m.eventos.toLocaleString('pt-BR') + ' pedidos, ' + m.clientes + ' clientes, '
             + cheio(m.receita) + ', de ' + dia(m.inicio) + ' a ' + dia(m.ref) + '.</p>' : '')
+    + '</div>'
+    + '<div class="cartao vd-cartao"><h3>Corrigir vendas importadas</h3>'
+      + '<p class="nota">Busque a nota pelo cliente e pela data. Cancelar retira o valor dos indicadores e relatórios, '
+      + 'mas preserva o lançamento e o motivo para auditoria. Se a venda foi corrigida, cancele a nota antiga e importe a nova.</p>'
+      + '<form id="vd-filtros" class="vd-filtros">'
+      + '<label>Cliente<input id="vd-busca" type="search" placeholder="Nome do cliente" value="'+esc(vendasConsulta.busca)+'"></label>'
+      + '<label>Data da venda<input id="vd-data" type="date" value="'+esc(vendasConsulta.data)+'"></label>'
+      + '<label>Situação<select id="vd-situacao">'
+      + '<option value="ativas"'+(vendasConsulta.situacao==='ativas'?' selected':'')+'>Ativas</option>'
+      + '<option value="canceladas"'+(vendasConsulta.situacao==='canceladas'?' selected':'')+'>Canceladas</option>'
+      + '<option value="todas"'+(vendasConsulta.situacao==='todas'?' selected':'')+'>Todas</option>'
+      + '</select></label><button type="submit" class="pri">Buscar notas</button></form>'
+      + '<div id="vd-lista" aria-live="polite"></div>'
     + '</div>'
     + '<div class="cartao" style="margin-top:12px"><h3>Possíveis duplicados</h3>'
       + '<p class="nota" style="margin-top:4px;margin-bottom:8px">O sistema só sugere; quem decide é você. '
@@ -2492,6 +2508,50 @@ function pintarDados() {
       + '<b>carteira_</b>. Nada fica no navegador nem em arquivo no servidor, então o que você grava aqui '
       + 'sobrevive a deploy, reinício e troca de máquina, e aparece igual em qualquer celular ou computador.</p>'
     + '</div>';
+  pintarVendas();
+}
+function carregarVendas() {
+  vendasCarregando = true;
+  pintarVendas();
+  var p = new URLSearchParams(vendasConsulta);
+  return fetch('/admin/carteira/vendas?' + p.toString()).then(function(r){return r.json();})
+    .then(function(j){
+      if (!j.success) throw new Error(j.erro || 'Não foi possível consultar as notas.');
+      vendasResultado = j;
+    }).catch(function(e){
+      vendasResultado = null;
+      recado(e.message || 'Não foi possível consultar as notas.', true);
+    }).finally(function(){vendasCarregando=false;pintarVendas();});
+}
+function pintarVendas() {
+  var box = $('vd-lista');
+  if (!box) return;
+  if (vendasCarregando) { box.innerHTML = '<p class="nota">Consultando notas…</p>'; return; }
+  if (!vendasResultado) { box.innerHTML = '<p class="nota">Abra esta área para consultar as notas.</p>'; return; }
+  var lista = vendasResultado.notas || [];
+  box.innerHTML = '<p class="nota vd-contagem">'+vendasResultado.total+' nota(s) encontrada(s)'
+    +(vendasResultado.total > vendasResultado.limite ? ' · mostrando as '+vendasResultado.limite+' mais recentes; refine a busca para encontrar uma nota antiga.' : '')+'</p>'
+    +(lista.length ? '<div class="vd-lista">'+lista.map(function(n){
+      var cancelada = !!n.cancelado_em;
+      var eventos = n.eventos || [];
+      return '<article class="vd-linha'+(cancelada?' vd-cancelada':'')+'">'
+        +'<div class="vd-identidade"><strong>'+esc(n.cliente_exibicao)+'</strong>'
+        +(n.cliente!==n.cliente_exibicao?'<small>Importado como '+esc(n.cliente)+'</small>':'')
+        +'<small>Nota #'+n.id+' · '+dia(n.data)+'</small></div>'
+        +'<div class="vd-valor"><strong>'+cheio(n.valor)+'</strong><span>'+(cancelada?'Cancelada':'Ativa')+'</span></div>'
+        +(cancelada
+          ? '<div class="vd-acao"><button type="button" data-vd-restaurar="'+n.id+'">Restaurar nota</button></div>'
+          : '<details class="vd-acao"><summary>Cancelar nota</summary><form class="vd-cancelar" data-id="'+n.id+'">'
+            +'<label>Motivo<input name="motivo" required minlength="5" maxlength="300" placeholder="Ex.: venda cancelada no ERP"></label>'
+            +'<button type="submit" class="pri">Confirmar cancelamento</button></form></details>')
+        +(cancelada?'<p class="vd-motivo">'+esc(n.cancelado_motivo || 'Sem motivo')
+          +' · por '+esc(nomeUsuario(n.cancelado_por))+' em '+dia(n.cancelado_em)+'</p>':'')
+        +(eventos.length?'<details class="vd-historico"><summary>Histórico de alterações</summary><ul>'
+          +eventos.map(function(ev){return '<li>'+dia(ev.criado_em)+' · '+(ev.acao==='cancelada'?'Cancelada':'Restaurada')
+            +' por '+esc(nomeUsuario(ev.usuario_id))+(ev.motivo?' · '+esc(ev.motivo):'')+'</li>';}).join('')
+          +'</ul></details>':'')
+        +'</article>';
+    }).join('')+'</div>' : '<p class="nota">Nenhuma nota encontrada com esses filtros.</p>');
 }
 $('d-corpo').addEventListener('click', function (e) {
   if (e.target.closest('#solto-vendas')) { $('arq-vendas').click(); return; }
@@ -2502,6 +2562,29 @@ $('d-corpo').addEventListener('click', function (e) {
     var ap = prompt('Qual nome deve voltar a ser um cliente separado?\n\n'
       + Object.keys(ALIASES).join('\n'));
     if (ap && ALIASES[ap]) gravar('/admin/carteira/alias', { apelido: ap, remover: true }, 'Desfeito.');
+  }
+  var restaurar = e.target.closest('[data-vd-restaurar]');
+  if (restaurar) {
+    var id = restaurar.dataset.vdRestaurar;
+    gravar('/admin/carteira/vendas/'+encodeURIComponent(id)+'/restaurar', {}, 'Nota restaurada.')
+      .then(function(j){if(j.success)carregarVendas();});
+  }
+});
+$('d-corpo').addEventListener('submit', function(e){
+  if (e.target.id === 'vd-filtros') {
+    e.preventDefault();
+    vendasConsulta = {busca:$('vd-busca').value.trim(), data:$('vd-data').value,
+      situacao:$('vd-situacao').value};
+    carregarVendas();
+    return;
+  }
+  if (e.target.matches('.vd-cancelar')) {
+    e.preventDefault();
+    var form=e.target, motivo=form.elements.motivo.value.trim();
+    if (motivo.length < 5) {recado('Informe o motivo do cancelamento.',true);return;}
+    gravar('/admin/carteira/vendas/'+encodeURIComponent(form.dataset.id)+'/cancelar',
+      {motivo:motivo}, 'Nota cancelada. Os indicadores foram atualizados.')
+      .then(function(j){if(j.success)carregarVendas();});
   }
 });
 
@@ -2526,7 +2609,7 @@ function ligarUpload(input, alvo, urlPrevia, urlUpload, desenhar) {
             .then(function (k) {
               if (!k.success) { recado(k.erro || 'Falhou.', true); ok.disabled = false; return; }
               box.innerHTML = '';
-              recado('Pronto: ' + (k.inseridas !== undefined ? k.inseridas + ' linhas novas'
+              recado('Pronto: ' + (k.novas !== undefined ? k.novas + ' linhas novas'
                 : (k.novos || 0) + ' leads novos') + '.');
               atualizar();
             });
@@ -2539,11 +2622,11 @@ ligarUpload($('arq-vendas'), 'pv-vendas', '/admin/carteira/previa', '/admin/cart
   function (j) {
     return '<div class="cartao" style="margin-top:11px;border-color:var(--roxo-borda)">'
       + '<h3>Confira antes de gravar</h3>'
-      + '<p class="nota" style="margin-top:4px">O arquivo tem <b>' + j.lidas + '</b> linhas válidas. '
-      + 'Destas, <b>' + j.novas + '</b> ainda não estão no banco e <b>' + (j.lidas - j.novas)
+      + '<p class="nota" style="margin-top:4px">O arquivo tem <b>' + j.no_arquivo + '</b> linhas válidas. '
+      + 'Destas, <b>' + j.novas + '</b> ainda não estão no banco e <b>' + j.repetidas
       + '</b> já existem e serão ignoradas.'
-      + (j.periodo_novo ? ' O que entra vai de ' + dia(j.periodo_novo[0]) + ' a ' + dia(j.periodo_novo[1]) + '.' : '')
-      + (j.erros && j.erros.length ? '<br><span style="color:var(--ruim)">' + j.erros.length
+      + (j.periodo_novas ? ' O que entra vai de ' + dia(j.periodo_novas[0]) + ' a ' + dia(j.periodo_novas[1]) + '.' : '')
+      + (j.ignoradas ? '<br><span style="color:var(--ruim)">' + j.ignoradas
           + ' linha(s) com problema serão puladas.</span>' : '') + '</p>'
       + '<div class="acoes" style="margin-top:9px">'
       + (j.novas ? '<button class="pri" type="button" data-conf="1">Gravar as ' + j.novas + ' linhas novas</button>'

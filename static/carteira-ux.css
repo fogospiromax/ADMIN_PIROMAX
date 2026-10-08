@@ -384,6 +384,38 @@ details.saiba[open] summary::before{transform:rotate(90deg)}
 @media(max-width:780px){.cm-controles{grid-template-columns:repeat(2,minmax(0,1fr))}.cm-linha{grid-template-columns:minmax(0,1fr) auto}.cm-envio{grid-column:1}.cm-acao{grid-column:2;grid-row:1/4}}
 @media(max-width:520px){.cm-resumo{grid-template-columns:1fr 1fr;gap:8px}.cm-indicador{padding:12px}.cm-indicador strong{font-size:1.25rem}.cm-controles{grid-template-columns:1fr}.cm-linha{gap:8px;padding:12px}.cm-acao{min-width:120px}.cm-acao button{font-size:.78rem;padding:7px 9px}}
 
+/* Conferência de vendas: ajustes manuais rastreáveis dentro de Dados. */
+.vd-cartao{margin-top:12px}
+.vd-cartao>.nota{max-width:78ch;margin:5px 0 16px;font-size:.875rem}
+.vd-filtros{display:grid;grid-template-columns:minmax(200px,2fr) minmax(150px,1fr) minmax(140px,1fr) auto;gap:12px;align-items:end}
+.vd-filtros label,.vd-cancelar label{display:grid;gap:6px;font-size:.875rem;font-weight:650;color:var(--texto2);min-width:0}
+.vd-filtros :is(input,select),.vd-cancelar input{box-sizing:border-box;width:100%;min-height:44px;border:1px solid var(--linha);border-radius:8px;background:#fff;padding:9px 11px;font-size:.875rem;color:var(--texto)}
+.vd-filtros button,.vd-cancelar button,.vd-acao>button{min-height:44px;border:1px solid var(--roxo);border-radius:8px;padding:9px 14px;font-size:.875rem;font-weight:650;cursor:pointer}
+.vd-filtros button,.vd-cancelar button{background:var(--roxo);color:#fff}
+.vd-acao>button{background:#fff;color:var(--roxo)}
+.vd-contagem{margin:16px 0 10px;font-size:.875rem}
+.vd-lista{display:grid;gap:8px}
+.vd-linha{display:grid;grid-template-columns:minmax(0,1fr) minmax(130px,auto) minmax(145px,auto);gap:10px 16px;align-items:center;border:1px solid var(--linha);border-radius:10px;background:#fff;padding:12px 14px}
+.vd-linha.vd-cancelada{background:#fafbfc}
+.vd-identidade{min-width:0}
+.vd-identidade strong{display:block;color:var(--roxo-forte);font-size:.94rem;overflow-wrap:anywhere}
+.vd-identidade small{display:block;color:var(--texto2);font-size:.875rem;margin-top:3px}
+.vd-valor{text-align:right;font-variant-numeric:tabular-nums}
+.vd-valor strong{display:block;font-size:.94rem;color:var(--roxo-forte);white-space:nowrap}
+.vd-valor span{display:block;font-size:.875rem;color:var(--texto2);margin-top:3px}
+.vd-acao{text-align:right}
+.vd-acao summary{list-style:none;cursor:pointer;border:1px solid var(--linha);border-radius:8px;min-height:44px;display:inline-flex;align-items:center;padding:8px 13px;font-size:.875rem;font-weight:650;color:var(--texto2)}
+.vd-acao summary::-webkit-details-marker{display:none}
+.vd-acao[open]{grid-column:1/-1;text-align:left;border-top:1px solid var(--linha2);padding-top:12px}
+.vd-acao[open] summary{margin-bottom:12px}
+.vd-cancelar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px}
+.vd-motivo,.vd-historico{grid-column:1/-1;margin:0;color:var(--texto2);font-size:.875rem}
+.vd-historico{border-top:1px solid var(--linha2);padding-top:8px}
+.vd-historico summary{cursor:pointer;font-weight:600}
+.vd-historico ul{margin:8px 0 0 18px;padding:0;line-height:1.5}
+@media(max-width:800px){.vd-filtros{grid-template-columns:repeat(2,minmax(0,1fr))}.vd-filtros button{width:100%}}
+@media(max-width:580px){.vd-filtros{grid-template-columns:1fr}.vd-linha{grid-template-columns:minmax(0,1fr) auto}.vd-acao{grid-column:1/-1;text-align:left}.vd-cancelar{grid-template-columns:1fr}.vd-cancelar button{width:100%}}
+
 /* O funil expõe etapa, desfecho e próximo passo sem abrir o cadastro. */
 .pr-escopos{display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 14px}
 .pr-escopos button{min-height:40px;padding:8px 13px;border:1px solid var(--linha);border-radius:9px;background:#fff;color:var(--texto2);font-size:.83rem;font-weight:650}
