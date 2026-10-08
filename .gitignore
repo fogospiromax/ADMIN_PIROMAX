@@ -1,0 +1,27 @@
+# Dados locais e exportações do banco não devem ser publicados.
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.sql
+*.dump
+*.backup
+*.sqlite
+*.sqlite3
+
+# Credenciais e configuração local.
+.env
+.env.*
+*.env
+*.pem
+*.key
+
+# Cópias de trabalho e arquivos temporários.
+*.backup-*
+*.bak
+*~
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+.DS_Store

@@ -1019,6 +1019,22 @@ def init_carteira_db():
             valor NUMERIC(14,2) NOT NULL
         )''')
     cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_vendas_cliente ON carteira_vendas(cliente)')
+    # Cancelamentos permanecem identificáveis para auditoria e para que uma
+    # reimportação do histórico não recoloque automaticamente a mesma nota.
+    cur.execute('ALTER TABLE carteira_vendas ADD COLUMN IF NOT EXISTS cancelado_em TIMESTAMPTZ')
+    cur.execute('ALTER TABLE carteira_vendas ADD COLUMN IF NOT EXISTS cancelado_por TEXT')
+    cur.execute('ALTER TABLE carteira_vendas ADD COLUMN IF NOT EXISTS cancelado_motivo TEXT')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS carteira_venda_auditoria (
+            id BIGSERIAL PRIMARY KEY,
+            venda_id INTEGER NOT NULL REFERENCES carteira_vendas(id),
+            acao TEXT NOT NULL,
+            usuario_id TEXT NOT NULL,
+            motivo TEXT NOT NULL DEFAULT '',
+            criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )''')
+    cur.execute('CREATE INDEX IF NOT EXISTS ix_carteira_venda_auditoria_venda '
+                'ON carteira_venda_auditoria(venda_id, criado_em DESC)')
     cur.execute('''
         CREATE TABLE IF NOT EXISTS carteira_alias (
             apelido  TEXT PRIMARY KEY,
@@ -1162,7 +1178,8 @@ def _carteira_dados():
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    cur.execute('SELECT data, cliente, valor FROM carteira_vendas ORDER BY data')
+    cur.execute('SELECT data, cliente, valor FROM carteira_vendas '
+                'WHERE cancelado_em IS NULL ORDER BY data')
     linhas = [(r['data'], r['cliente'], float(r['valor'])) for r in cur.fetchall()]
 
     cur.execute('SELECT apelido, canonico FROM carteira_alias')
@@ -1345,14 +1362,15 @@ def admin_carteira_pedidos(cliente_id):
     cur = conn.cursor()
     try:
         cur.execute('SELECT DISTINCT COALESCE(a.canonico, v.cliente) '
-                    'FROM carteira_vendas v LEFT JOIN carteira_alias a ON a.apelido=v.cliente')
+                    'FROM carteira_vendas v LEFT JOIN carteira_alias a ON a.apelido=v.cliente '
+                    'WHERE v.cancelado_em IS NULL')
         nomes = {carteira.id_cliente(nome): nome for (nome,) in cur.fetchall()}
         nome = nomes.get(cliente_id)
         if not nome:
             return jsonify({'success': False, 'erro': 'Cliente não encontrado.'}), 404
         cur.execute('SELECT v.data, v.valor FROM carteira_vendas v '
                     'LEFT JOIN carteira_alias a ON a.apelido=v.cliente '
-                    'WHERE COALESCE(a.canonico, v.cliente)=%s '
+                    'WHERE COALESCE(a.canonico, v.cliente)=%s AND v.cancelado_em IS NULL '
                     'ORDER BY v.data DESC, v.valor DESC', (nome,))
         pedidos = carteira.historico_pedidos(cur.fetchall())
     finally:
@@ -1382,6 +1400,126 @@ def admin_carteira_relatorio(cliente_id):
     resposta.headers['Cache-Control'] = 'private, no-store'
     resposta.headers['X-Robots-Tag'] = 'noindex, nofollow, noarchive'
     return resposta
+
+
+@app.route('/admin/carteira/vendas')
+@login_required
+def admin_carteira_vendas():
+    """Consulta limitada das notas originais, incluindo cancelamentos auditáveis."""
+    busca = (request.args.get('busca') or '').strip()[:120]
+    data_txt = (request.args.get('data') or '').strip()
+    situacao = (request.args.get('situacao') or 'ativas').strip()
+    if situacao not in ('ativas', 'canceladas', 'todas'):
+        return jsonify({'success': False, 'erro': 'Situação inválida.'}), 400
+    if data_txt:
+        try:
+            data_filtro = _date.fromisoformat(data_txt)
+        except ValueError:
+            return jsonify({'success': False, 'erro': 'Data inválida.'}), 400
+    else:
+        data_filtro = None
+    filtros, valores = [], []
+    if busca:
+        filtros.append('(v.cliente ILIKE %s OR a.canonico ILIKE %s)')
+        valores.extend(('%' + busca + '%', '%' + busca + '%'))
+    if data_filtro:
+        filtros.append('v.data=%s')
+        valores.append(data_filtro)
+    if situacao == 'ativas':
+        filtros.append('v.cancelado_em IS NULL')
+    elif situacao == 'canceladas':
+        filtros.append('v.cancelado_em IS NOT NULL')
+    onde = ' WHERE ' + ' AND '.join(filtros) if filtros else ''
+    origem = (' FROM carteira_vendas v LEFT JOIN carteira_alias a '
+              'ON a.apelido=v.cliente')
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute('SELECT COUNT(*) AS total' + origem + onde, tuple(valores))
+        total = cur.fetchone()['total']
+        cur.execute('SELECT v.id, v.data, v.cliente, COALESCE(a.canonico, v.cliente) '
+                    'AS cliente_exibicao, v.valor, v.cancelado_em, v.cancelado_por, '
+                    'v.cancelado_motivo' + origem + onde +
+                    ' ORDER BY v.data DESC, v.id DESC LIMIT 60', tuple(valores))
+        notas = [dict(r) for r in cur.fetchall()]
+        eventos = {}
+        if notas:
+            cur.execute('SELECT venda_id, acao, usuario_id, motivo, criado_em '
+                        'FROM carteira_venda_auditoria WHERE venda_id = ANY(%s) '
+                        'ORDER BY criado_em DESC, id DESC', ([n['id'] for n in notas],))
+            for evento in cur.fetchall():
+                eventos.setdefault(evento['venda_id'], []).append({
+                    'acao': evento['acao'], 'usuario_id': evento['usuario_id'],
+                    'motivo': evento['motivo'], 'criado_em': evento['criado_em'].isoformat()})
+    finally:
+        cur.close()
+        conn.close()
+    for nota in notas:
+        nota['data'] = nota['data'].isoformat()
+        nota['valor'] = float(nota['valor'])
+        nota['cancelado_em'] = (nota['cancelado_em'].isoformat()
+                                if nota['cancelado_em'] else None)
+        nota['eventos'] = eventos.get(nota['id'], [])
+    return jsonify({'success': True, 'total': total, 'notas': notas,
+                    'limite': 60})
+
+
+@app.route('/admin/carteira/vendas/<int:venda_id>/cancelar', methods=['POST'])
+@login_required
+def admin_carteira_venda_cancelar(venda_id):
+    corpo = request.get_json(silent=True)
+    motivo = (corpo.get('motivo') or '').strip() if isinstance(corpo, dict) else ''
+    if len(motivo) < 5 or len(motivo) > 300:
+        return jsonify({'success': False, 'erro': 'Informe o motivo do cancelamento (5 a 300 caracteres).'}), 400
+    usuario = session['usuario_id']
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute('UPDATE carteira_vendas SET cancelado_em=NOW(), cancelado_por=%s, '
+                    'cancelado_motivo=%s WHERE id=%s AND cancelado_em IS NULL RETURNING id',
+                    (usuario, motivo, venda_id))
+        if not cur.fetchone():
+            conn.rollback()
+            return jsonify({'success': False, 'erro': 'Nota não encontrada ou já cancelada.'}), 409
+        cur.execute('INSERT INTO carteira_venda_auditoria '
+                    '(venda_id, acao, usuario_id, motivo) VALUES (%s,%s,%s,%s)',
+                    (venda_id, 'cancelada', usuario, motivo))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/carteira/vendas/<int:venda_id>/restaurar', methods=['POST'])
+@login_required
+def admin_carteira_venda_restaurar(venda_id):
+    if not isinstance(request.get_json(silent=True), dict):
+        return jsonify({'success': False, 'erro': 'Envie a solicitação em JSON.'}), 400
+    usuario = session['usuario_id']
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute('UPDATE carteira_vendas SET cancelado_em=NULL, cancelado_por=NULL, '
+                    'cancelado_motivo=NULL WHERE id=%s AND cancelado_em IS NOT NULL RETURNING id',
+                    (venda_id,))
+        if not cur.fetchone():
+            conn.rollback()
+            return jsonify({'success': False, 'erro': 'Nota não encontrada ou já ativa.'}), 409
+        cur.execute('INSERT INTO carteira_venda_auditoria '
+                    '(venda_id, acao, usuario_id) VALUES (%s,%s,%s)',
+                    (venda_id, 'restaurada', usuario))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    return jsonify({'success': True})
 
 
 @app.route('/admin/carteira/resultados/<tipo>.pdf')
@@ -1422,7 +1560,8 @@ def _diferenca(cur, linhas):
     Conta quantas vezes cada nota (data, cliente, valor) ja existe e so
     considera novo o que passar dessa contagem. Assim reenviar o historico
     inteiro nao duplica nada, e duas vendas legitimamente iguais no mesmo dia
-    continuam valendo as duas.
+    continuam valendo as duas. Notas canceladas também contam como já importadas:
+    somente uma restauração explícita pode voltar a ativá-las.
     """
     from collections import Counter
     cur.execute('SELECT data, cliente, valor, COUNT(*) FROM carteira_vendas GROUP BY 1,2,3')
@@ -1449,7 +1588,8 @@ def admin_carteira_previa():
     conn = get_db()
     cur = conn.cursor()
     novas = _diferenca(cur, linhas)
-    cur.execute('SELECT COUNT(*), MIN(data), MAX(data) FROM carteira_vendas')
+    cur.execute('SELECT COUNT(*), MIN(data), MAX(data) FROM carteira_vendas '
+                'WHERE cancelado_em IS NULL')
     qtd, d0, d1 = cur.fetchone()
     cur.close()
     conn.close()
@@ -1484,7 +1624,7 @@ def admin_carteira_upload():
     cur.execute("INSERT INTO carteira_config (chave, valor) VALUES ('ultima_importacao', %s) "
                 "ON CONFLICT (chave) DO UPDATE SET valor=EXCLUDED.valor", (now_sp_str(),))
     conn.commit()
-    cur.execute('SELECT COUNT(*) FROM carteira_vendas')
+    cur.execute('SELECT COUNT(*) FROM carteira_vendas WHERE cancelado_em IS NULL')
     total = cur.fetchone()[0]
     cur.close()
     conn.close()
@@ -1570,7 +1710,8 @@ def admin_carteira_atribuir():
     cur = conn.cursor()
     try:
         cur.execute('SELECT DISTINCT COALESCE(a.canonico, v.cliente) '
-                    'FROM carteira_vendas v LEFT JOIN carteira_alias a ON a.apelido=v.cliente')
+                    'FROM carteira_vendas v LEFT JOIN carteira_alias a ON a.apelido=v.cliente '
+                    'WHERE v.cancelado_em IS NULL')
         clientes = {carteira.id_cliente(nome): nome for (nome,) in cur.fetchall()}
         if any(cid not in clientes for cid in ids):
             return jsonify({'success': False, 'erro': 'A lista contém cliente desconhecido. Atualize a página.'}), 400
