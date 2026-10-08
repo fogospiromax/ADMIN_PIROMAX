@@ -10,6 +10,8 @@ const source=fs.readFileSync(root+'/static/carteira.js','utf8').replace(/\}\)\(\
 let passed=0;
 function boot(){
  const errors=[],calls=[],data=structuredClone(initial);
+ const vendas=[{id:7,data:'2026-09-24',cliente:'CLIENTE FICTÍCIO',cliente_exibicao:'CLIENTE FICTÍCIO',
+   valor:2726.60,cancelado_em:null,cancelado_por:null,cancelado_motivo:null,eventos:[]}];
  const vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
  const html=template.replace('data-usuario="{{ usuario_id }}"','data-usuario="fernando"');
  const dom=new JSDOM(html,{runScripts:'outside-only',url:'http://localhost/admin/carteira',virtualConsole:vc});
@@ -18,6 +20,19 @@ function boot(){
  w.HTMLElement.prototype.scrollIntoView=function(){};w.scrollTo=()=>{};w.requestAnimationFrame=fn=>fn();w.confirm=()=>false;
  w.fetch=async(url,opt={})=>{
   const body=opt.body?JSON.parse(opt.body):{};calls.push({url,body});
+  if(url.startsWith('/admin/carteira/vendas?')){
+   const params=new URL(url,'http://localhost').searchParams;
+   const found=vendas.filter(v=>(!params.get('busca')||v.cliente.includes(params.get('busca').toUpperCase()))
+     &&(!params.get('data')||v.data===params.get('data'))
+     &&(params.get('situacao')==='todas'||(params.get('situacao')==='canceladas'?!!v.cancelado_em:!v.cancelado_em)));
+   return {json:async()=>({success:true,total:found.length,limite:60,notas:structuredClone(found)})};
+  }
+  if(url.startsWith('/admin/carteira/vendas/')){
+   const v=vendas.find(x=>x.id===Number(url.split('/')[4]));
+   if(url.endsWith('/cancelar')){v.cancelado_em='2026-09-24T12:00:00';v.cancelado_por='fernando';v.cancelado_motivo=body.motivo;}
+   if(url.endsWith('/restaurar')){v.cancelado_em=null;v.cancelado_por=null;v.cancelado_motivo=null;}
+   return {json:async()=>({success:true})};
+  }
   if(url.startsWith('/admin/carteira/comunicacoes?'))return {json:async()=>({success:true,registros:data.comunicacoes||[]})};
   if(url==='/admin/carteira/comunicacoes'&&opt.method==='POST'){
    (data.comunicacoes||(data.comunicacoes=[])).unshift({id:'cm-'+(data.comunicacoes.length+1),cliente_id:body.cliente_id,data:data.hoje,usuario_id:'fernando',assunto:body.assunto||'',canal:'whatsapp'});
@@ -83,6 +98,21 @@ async function test(name,fn){let c=boot();try{await fn(c);await settle();assert.
   c.w.confirm=()=>true;
   c.doc.querySelector('[data-cm-desfazer]').click();await settle();
   assert.ok(c.doc.getElementById('cm-lista').textContent.includes('0/2'));
+ });
+ await test('Sales correction can be found, cancelled with reason, and restored in Dados',async c=>{
+  c.doc.getElementById('aba-dados').click();await settle();
+  assert.match(c.doc.getElementById('vd-lista').textContent,/2\.726,60/);
+  fill(c,'vd-busca','Cliente');fill(c,'vd-data','2026-09-24');
+  c.doc.getElementById('vd-filtros').dispatchEvent(new c.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+  const form=c.doc.querySelector('.vd-cancelar');
+  form.elements.motivo.value='Cancelada no ERP';
+  form.dispatchEvent(new c.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+  assert.ok(c.calls.some(x=>x.url==='/admin/carteira/vendas/7/cancelar'&&x.body.motivo==='Cancelada no ERP'));
+  c.doc.getElementById('vd-situacao').value='canceladas';
+  c.doc.getElementById('vd-filtros').dispatchEvent(new c.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+  assert.match(c.doc.getElementById('vd-lista').textContent,/Cancelada no ERP/);
+  c.doc.querySelector('[data-vd-restaurar="7"]').click();await settle();
+  assert.ok(c.calls.some(x=>x.url==='/admin/carteira/vendas/7/restaurar'));
  });
  await test('Saving contact clears only submitted fields and preserves another draft',async c=>{
   const id=c.data.dados.clientes[0].id;c.api.abrirFicha(id,'cliente');

@@ -52,7 +52,12 @@ class Connection:
             etapa TEXT, etapa_origem TEXT DEFAULT '', cliente_id TEXT, atualizado_em TEXT, contato TEXT, telefone TEXT, cidade TEXT,
             uf TEXT, email TEXT, motivo TEXT, obs TEXT, segmento TEXT, instagram TEXT,
             revenda BOOL, revenda_de TEXT, responsavel_usuario TEXT DEFAULT '');
-          CREATE TABLE carteira_vendas(data TEXT, cliente TEXT, valor REAL);
+          CREATE TABLE carteira_vendas(id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT,
+            cliente TEXT, valor REAL, cancelado_em TEXT, cancelado_por TEXT,
+            cancelado_motivo TEXT);
+          CREATE TABLE carteira_venda_auditoria(id INTEGER PRIMARY KEY AUTOINCREMENT,
+            venda_id INTEGER, acao TEXT, usuario_id TEXT, motivo TEXT DEFAULT '',
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP);
           CREATE TABLE carteira_alias(apelido TEXT PRIMARY KEY, canonico TEXT);
           CREATE TABLE carteira_ficha(cliente_id TEXT PRIMARY KEY, cliente_nome TEXT, cidade TEXT,
             estado TEXT,situacao TEXT,motivo TEXT,atuacao TEXT,obs TEXT,dispensa BOOL,cadencia INT,
@@ -207,7 +212,8 @@ class EndpointTests(unittest.TestCase):
                      'admin_carteira_tarefa_toggle', 'admin_lead_concluir_retorno',
                      'admin_lead_salvar', 'admin_lead_excluir', 'admin_carteira_ficha', 'admin_carteira_atribuir',
                      'admin_carteira_pedidos', 'admin_carteira_comunicacoes',
-                     'admin_carteira_comunicacao_desfazer']
+                     'admin_carteira_comunicacao_desfazer', 'admin_carteira_venda_cancelar',
+                     'admin_carteira_venda_restaurar', '_diferenca']
         tree = ast.parse((ROOT/'app.py').read_text())
         nodes = []
         for node in tree.body:
@@ -256,6 +262,29 @@ class EndpointTests(unittest.TestCase):
         self.assertIsNotNone(self.rows('carteira_comunicacao')[0]['cancelado_em'])
         self.env['request'].method = 'GET'
         self.assertEqual(self.env['admin_carteira_comunicacoes']()['registros'], [])
+
+    def test_cancelled_sale_leaves_reports_and_cannot_reenter_by_reimport(self):
+        self.conn.db.execute("INSERT INTO carteira_vendas(data,cliente,valor) VALUES (?,?,?)",
+                             ('2026-09-24', 'CLIENTE FICTÍCIO', 2726.60))
+        self.conn.commit()
+        sale_id = self.rows('carteira_vendas')[0]['id']
+        self.assertEqual(self.call('admin_carteira_venda_cancelar', {'motivo':'não'}, sale_id)[1], 400)
+        self.assertEqual(self.rows('carteira_venda_auditoria'), [])
+        self.assertTrue(self.call('admin_carteira_venda_cancelar',
+                                  {'motivo':'Cancelada no ERP'}, sale_id)['success'])
+        sale = self.rows('carteira_vendas')[0]
+        self.assertIsNotNone(sale['cancelado_em'])
+        self.assertEqual(sale['cancelado_por'], 'fernando')
+        self.assertEqual(self.conn.db.execute(
+            'SELECT COUNT(*) FROM carteira_vendas WHERE cancelado_em IS NULL').fetchone()[0], 0)
+        self.assertEqual(self.env['_diferenca'](self.conn.cursor(),
+            [('2026-09-24', 'CLIENTE FICTÍCIO', 2726.60)]), [])
+        self.assertEqual(self.call('admin_carteira_venda_cancelar',
+                                  {'motivo':'Cancelada no ERP'}, sale_id)[1], 409)
+        self.assertTrue(self.call('admin_carteira_venda_restaurar', {}, sale_id)['success'])
+        self.assertIsNone(self.rows('carteira_vendas')[0]['cancelado_em'])
+        self.assertEqual([r['acao'] for r in self.rows('carteira_venda_auditoria')],
+                         ['cancelada', 'restaurada'])
 
     def test_invalid_contact_writes_nothing(self):
         result = self.call('admin_carteira_contato', dict(cliente_id='a', resumo='Teste', resultado='retorno'))
